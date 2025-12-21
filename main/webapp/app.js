@@ -1,4 +1,4 @@
-import { processImage } from './image-processor.js';
+import { processImage, applySaturation, applyScurveTonemap } from './image-processor.js';
 
 const API_BASE = '';
 
