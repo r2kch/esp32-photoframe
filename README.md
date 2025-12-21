@@ -134,34 +134,49 @@ idf.py -p PORT monitor
 
 ## Initial Setup
 
-### 1. Configure WiFi Credentials
+### 1. WiFi Provisioning
 
-On first boot, the device will start without WiFi connection. You have two options:
+On first boot, the device automatically starts in **WiFi provisioning mode** if no credentials are saved:
 
-**Option A: Modify code before building**
-Edit `main/config.h` and set default credentials, or modify `main/main.c` to hardcode your WiFi credentials.
+1. **Connect to AP**: The device creates a WiFi access point named `PhotoFrame-Setup`
+2. **Open Browser**: Connect to the AP and navigate to `http://192.168.4.1`
+   - Most devices will automatically open a captive portal
+3. **Enter Credentials**: Submit your WiFi SSID and password
+4. **Live Connection Test**: The device tests the connection in real-time
+   - Uses APSTA mode - you stay connected to the setup page during the test
+   - ✅ **Success**: Credentials are saved and device restarts
+   - ❌ **Failure**: Error message appears immediately - retry with correct credentials
+5. **Auto-Connect**: On subsequent boots, device connects automatically
 
-**Option B: Use NVS (recommended for future versions)**
-Currently, WiFi credentials need to be set before compilation. A future enhancement could add a WiFi configuration API endpoint.
+**Important Notes:**
+- Only 2.4GHz WiFi networks are supported (ESP32 limitation)
+- WPA3-SAE security is supported
+- Connection is tested before saving - invalid credentials are never saved
+- You remain connected to the setup page during testing (no need to reconnect)
+- To re-provision, erase flash with: `idf.py erase-flash`
 
 ### 2. Prepare SD Card
 
 1. Format SD card as FAT32
-2. The device will automatically create `/sdcard/images/` directory on first boot
-3. You can pre-load BMP images (800x480, 7-color palette) into this directory
+2. Insert into device before powering on
+3. The device will automatically create `/sdcard/images/` directory on first boot
+4. You can pre-load BMP images (800x480, 7-color palette) into this directory
 
 ## Usage
 
 ### Web Interface
 
-1. After connecting to WiFi, the device will print its IP address in the serial monitor
-2. Open a web browser and navigate to `http://<device-ip>/`
-3. The web interface provides:
+1. After connecting to WiFi, access the device at:
+   - **mDNS**: `http://photoframe.local` (recommended - works on most devices)
+   - **IP Address**: Check serial monitor for the device's IP address
+2. The web interface provides:
    - Image gallery with thumbnails
    - Drag-and-drop upload for JPG images
    - Display control and image management
    - Configuration for auto-rotate, brightness, and contrast
    - Real-time battery status
+
+**Note**: If `photoframe.local` doesn't work, use the IP address shown in the serial monitor.
 
 ### RESTful API
 
@@ -238,10 +253,19 @@ CONFIG_ESP_INT_WDT_TIMEOUT_MS=1000   // Interrupt watchdog timeout (1000ms for e
 
 ## Troubleshooting
 
+### WiFi Provisioning Issues
+- **AP not visible**: Check serial monitor for errors, ensure device is powered on
+- **Captive portal doesn't open**: Manually navigate to `http://192.168.4.1`
+- **Connection test fails**: Verify SSID and password are correct, then retry
+  - You stay connected to the setup page - no need to reconnect
+  - Error message appears within 15 seconds if credentials are wrong
+- **Wrong network saved**: Erase flash with `idf.py erase-flash` and re-provision
+- **2.4GHz only**: ESP32 doesn't support 5GHz WiFi networks
+
 ### WiFi Connection Issues
-- Check SSID and password in code
-- Ensure 2.4GHz WiFi (ESP32 doesn't support 5GHz)
-- Check serial monitor for connection status
+- Ensure 2.4GHz WiFi network (ESP32 doesn't support 5GHz)
+- Check serial monitor for connection status and IP address
+- Try accessing via `http://photoframe.local` or the IP address shown in logs
 
 ### SD Card Not Detected
 - Ensure SD card is formatted as FAT32

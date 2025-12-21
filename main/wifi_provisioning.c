@@ -9,19 +9,30 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lwip/ip4_addr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "power_manager.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "wifi_prov";
 static httpd_handle_t provisioning_server = NULL;
+
+// Structure to pass credentials to test task
+typedef struct {
+    char ssid[WIFI_SSID_MAX_LEN];
+    char password[WIFI_PASS_MAX_LEN];
+} wifi_test_params_t;
 
 extern const uint8_t provision_html_start[] asm("_binary_provision_html_start");
 extern const uint8_t provision_html_end[] asm("_binary_provision_html_end");
 
 static esp_err_t provision_page_handler(httpd_req_t *req)
 {
+    power_manager_reset_sleep_timer();
+
     const size_t provision_html_size = (provision_html_end - provision_html_start);
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, (const char *) provision_html_start, provision_html_size);
@@ -31,6 +42,8 @@ static esp_err_t provision_page_handler(httpd_req_t *req)
 // Handler for captive portal detection URLs
 static esp_err_t captive_portal_handler(httpd_req_t *req)
 {
+    power_manager_reset_sleep_timer();
+
     ESP_LOGI(TAG, "Captive portal detection request: %s", req->uri);
 
     // For iOS/macOS - return success page instead of redirect
@@ -47,6 +60,8 @@ static esp_err_t captive_portal_handler(httpd_req_t *req)
 // Error handler for 404 - acts as catch-all
 static esp_err_t captive_portal_error_handler(httpd_req_t *req, httpd_err_code_t err)
 {
+    power_manager_reset_sleep_timer();
+
     ESP_LOGI(TAG, "404 catch-all request: %s", req->uri);
 
     const char *success_response =
@@ -62,6 +77,8 @@ static esp_err_t captive_portal_error_handler(httpd_req_t *req, httpd_err_code_t
 
 static esp_err_t provision_save_handler(httpd_req_t *req)
 {
+    power_manager_reset_sleep_timer();
+
     char buf[512];
     int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
     if (ret <= 0) {
@@ -121,7 +138,65 @@ static esp_err_t provision_save_handler(httpd_req_t *req)
     }
 
     ESP_LOGI(TAG, "Received WiFi credentials - SSID: %s", ssid);
+    ESP_LOGI(TAG, "Testing WiFi connection in APSTA mode...");
 
+    // Switch to APSTA mode to test connection while keeping AP running
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
+
+    // Configure STA with provided credentials
+    wifi_config_t sta_config = {0};
+    strncpy((char *) sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid) - 1);
+    strncpy((char *) sta_config.sta.password, password, sizeof(sta_config.sta.password) - 1);
+    sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    sta_config.sta.pmf_cfg.capable = true;
+    sta_config.sta.pmf_cfg.required = false;
+
+    esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+
+    // Disconnect first if already connected
+    esp_wifi_disconnect();
+
+    // Wait a bit for disconnect to complete
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Try to connect
+    esp_wifi_connect();
+
+    // Wait for connection result (with timeout)
+    EventBits_t bits =
+        xEventGroupWaitBits(wifi_manager_get_event_group(), WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                            pdTRUE,               // Clear bits on exit
+                            pdFALSE,              // Wait for either bit
+                            pdMS_TO_TICKS(15000)  // 15 second timeout
+        );
+
+    if (!(bits & WIFI_CONNECTED_BIT)) {
+        ESP_LOGW(TAG, "Failed to connect to WiFi network: %s", ssid);
+
+        // Connection failed - switch back to AP-only mode
+        esp_wifi_disconnect();
+        esp_wifi_set_mode(WIFI_MODE_AP);
+
+        const char *error_response =
+            "<html><body><h1>WiFi Connection Failed</h1>"
+            "<p>Could not connect to the WiFi network. Please check your credentials and try "
+            "again.</p>"
+            "<p>Common issues:</p>"
+            "<ul>"
+            "<li>Incorrect password</li>"
+            "<li>Wrong SSID (network name)</li>"
+            "<li>Network is 5GHz (only 2.4GHz supported)</li>"
+            "<li>Network is out of range</li>"
+            "</ul>"
+            "<p><a href='/'>Go Back</a></p></body></html>";
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_send(req, error_response, strlen(error_response));
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "WiFi connection successful! Saving credentials...");
+
+    // Connection successful - save credentials
     esp_err_t err = wifi_manager_save_credentials(ssid, password);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save credentials");
@@ -129,8 +204,9 @@ static esp_err_t provision_save_handler(httpd_req_t *req)
     }
 
     const char *response =
-        "<html><body><h1>WiFi Configured!</h1><p>Device will restart and connect to your WiFi "
-        "network.</p></body></html>";
+        "<html><body><h1>WiFi Configured!</h1>"
+        "<p>Successfully connected to your WiFi network.</p>"
+        "<p>Device will restart in 3 seconds...</p></body></html>";
     httpd_resp_send(req, response, strlen(response));
 
     return ESP_OK;

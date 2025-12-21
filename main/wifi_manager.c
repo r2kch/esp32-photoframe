@@ -206,3 +206,8 @@ esp_err_t wifi_manager_load_credentials(char *ssid, char *password)
 
     return err;
 }
+
+EventGroupHandle_t wifi_manager_get_event_group(void)
+{
+    return s_wifi_event_group;
+}
