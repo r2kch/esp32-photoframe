@@ -31,12 +31,12 @@ PALETTE = np.array([
 # These values are significantly different from theoretical RGB, especially white!
 PALETTE_MEASURED = np.array([
     [2, 2, 2],         # Black (measured)
-    [179, 182, 171],   # White (measured - much darker than theoretical!)
-    [201, 184, 0],     # Yellow (measured)
-    [117, 10, 0],      # Red (measured - much darker)
+    [185, 185, 185],   # White (measured - much darker than theoretical!)
+    [195, 184, 0],     # Yellow (measured)
+    [117, 5, 0],       # Red (measured - much darker)
     [0, 0, 0],         # Reserved
     [0, 47, 107],      # Blue (measured - much darker)
-    [33, 69, 40]       # Green (measured - much darker)
+    [35, 70, 40]       # Green (measured - much darker)
 ], dtype=np.uint8)
 
 def find_closest_color(r, g, b, palette=None):

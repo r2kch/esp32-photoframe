@@ -34,12 +34,12 @@ static const rgb_t palette[7] = {
 // Measured palette - actual displayed colors from e-paper (used for dithering)
 static const rgb_t palette_measured[7] = {
     {2, 2, 2},        // Black (measured)
-    {179, 182, 171},  // White (measured - much darker than theoretical!)
-    {201, 184, 0},    // Yellow (measured)
-    {117, 10, 0},     // Red (measured - much darker)
+    {185, 185, 185},  // White (measured - much darker than theoretical!)
+    {195, 184, 0},    // Yellow (measured)
+    {117, 5, 0},      // Red (measured - much darker)
     {0, 0, 0},        // Reserved
     {0, 47, 107},     // Blue (measured - much darker)
-    {33, 69, 40}      // Green (measured - much darker)
+    {35, 70, 40}      // Green (measured - much darker)
 };
 
 static int find_closest_color(uint8_t r, uint8_t g, uint8_t b, const rgb_t *pal)
