@@ -227,6 +227,11 @@ void display_manager_handle_timer_wakeup(void)
     int image_count = 0;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_REG) {
+            // Skip macOS resource fork files (._*)
+            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+                continue;
+            }
+
             const char *ext = strrchr(entry->d_name, '.');
             if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
                 image_count++;
@@ -246,6 +251,11 @@ void display_manager_handle_timer_wakeup(void)
     int idx = 0;
     while ((entry = readdir(dir)) != NULL && idx < image_count) {
         if (entry->d_type == DT_REG) {
+            // Skip macOS resource fork files (._*)
+            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+                continue;
+            }
+
             const char *ext = strrchr(entry->d_name, '.');
             if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
                 image_list[idx] = strdup(entry->d_name);
