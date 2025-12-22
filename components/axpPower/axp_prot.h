@@ -19,6 +19,9 @@ int axp_get_battery_voltage(void);
 bool axp_is_charging(void);
 bool axp_is_battery_connected(void);
 
+// Power control functions
+void axp_shutdown(void);
+
 #ifdef __cplusplus
 }
 #endif

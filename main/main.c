@@ -48,13 +48,27 @@ static esp_err_t init_sdcard(void)
     slot_config.d2 = GPIO_NUM_2;    // SDMMC_D2
     slot_config.d3 = GPIO_NUM_38;   // SDMMC_D3
 
-    esp_err_t ret = esp_vfs_fat_sdmmc_mount(mount_point, &host, &slot_config, &mount_config, &card);
+    // Retry SD card initialization up to 5 times with delays
+    esp_err_t ret = ESP_FAIL;
+    for (int retry = 0; retry < 5; retry++) {
+        if (retry > 0) {
+            ESP_LOGW(TAG, "SD card init failed, retrying... (attempt %d/5)", retry + 1);
+            vTaskDelay(pdMS_TO_TICKS(500));  // Wait 500ms before retry
+        }
+
+        ret = esp_vfs_fat_sdmmc_mount(mount_point, &host, &slot_config, &mount_config, &card);
+
+        if (ret == ESP_OK) {
+            break;  // Success
+        }
+    }
 
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount filesystem");
+            ESP_LOGE(TAG, "Failed to mount filesystem after 5 attempts");
         } else {
-            ESP_LOGE(TAG, "Failed to initialize SD card (%s)", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Failed to initialize SD card after 5 attempts (%s)",
+                     esp_err_to_name(ret));
         }
         return ret;
     }
@@ -174,8 +188,10 @@ void app_main(void)
     // Initialize SD card (optional - device can still work without it for WiFi setup)
     ret = init_sdcard();
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "SD card initialization failed, continuing without SD card");
-        ESP_LOGW(TAG, "You can insert an SD card and restart the device later");
+        ESP_LOGE(TAG, "SD card initialization failed - triggering hard reset");
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Give time for log to flush
+        axp_shutdown();  // Hard power-off
+        // Won't reach here
     }
 
     ESP_ERROR_CHECK(image_processor_init());
@@ -195,7 +211,7 @@ void app_main(void)
         power_manager_enter_sleep_with_timer(display_manager_get_rotate_interval());
         // Won't reach here after sleep
     }
-    
+
     // Check if this is a KEY button wakeup for manual rotation
     if (power_manager_is_ext1_wakeup()) {
         ESP_LOGI(TAG, "KEY button wakeup detected - rotate and sleep");
