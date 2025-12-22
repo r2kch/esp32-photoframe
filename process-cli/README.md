@@ -145,34 +145,15 @@ node cli.js photo.jpg --scurve-strength 0.8 --saturation 1.3 --suffix "_s08_sat1
 # Outputs: photo_s08_sat13.bmp, photo_s08_sat13.jpg
 ```
 
-## Architecture
-
-**Shared Code:**
-```
-process-cli/
-├── image-processor.js    # Shared with webapp (symlinked in main/webapp/)
-├── cli.js                # Node.js CLI wrapper
-└── package.json          # Dependencies (canvas, commander)
-
-main/webapp/
-└── image-processor.js -> ../../process-cli/image-processor.js (symlink)
-```
-
-**Benefits:**
-- Single source of truth for image processing
-- Webapp and CLI produce identical results
-- Bug fixes benefit both tools
-- Easy to maintain and test
-
 ## Default Parameters
 
 The CLI uses the same defaults as the webapp:
 - **Processing Mode**: Enhanced (with S-curve tone mapping)
 - **S-Curve Strength**: 0.9 (strong tone mapping)
 - **Shadow Boost**: 0.0 (neutral shadows)
-- **Highlight Compress**: 1.7 (moderate highlight protection)
+- **Highlight Compress**: 1.5 (moderate highlight protection)
 - **Midpoint**: 0.5 (balanced shadow/highlight split)
-- **Saturation**: 1.2 (slightly more vibrant)
+- **Saturation**: 1.5 (moderate saturation)
 - **Color Method**: RGB (simple Euclidean distance)
 
 ## Output Modes
@@ -186,21 +167,3 @@ The CLI uses the same defaults as the webapp:
 - Darker, muted colors
 - Shows actual e-paper appearance
 - For testing and preview purposes
-
-## Troubleshooting
-
-**Canvas installation fails:**
-- Install system dependencies first (Cairo, Pango, etc.)
-- See installation section for platform-specific commands
-
-**Image looks too dark:**
-- Increase `--scurve-shadow` to brighten shadows
-- Reduce `--scurve-strength` for less aggressive tone mapping
-
-**Image looks washed out:**
-- Increase `--saturation` for more vibrant colors
-- Increase `--scurve-highlight` to protect highlights
-
-**Colors don't match webapp:**
-- Ensure you're using the same parameters
-- Check that `image-processor.js` is up to date
