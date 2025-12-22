@@ -232,6 +232,10 @@ bool axp_is_battery_connected(void) {
     return axp2101.isBatteryConnect();
 }
 
+bool axp_is_usb_connected(void) {
+    return axp2101.isVbusIn();
+}
+
 void axp_shutdown(void) {
     ESP_LOGI(TAG, "Triggering hard power-off via AXP2101");
     axp2101.shutdown();

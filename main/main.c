@@ -190,7 +190,7 @@ void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "SD card initialization failed - triggering hard reset");
         vTaskDelay(pdMS_TO_TICKS(1000));  // Give time for log to flush
-        axp_shutdown();  // Hard power-off
+        axp_shutdown();                   // Hard power-off
         // Won't reach here
     }
 
@@ -201,7 +201,7 @@ void app_main(void)
     // Initialize power manager early to detect wakeup cause
     ESP_ERROR_CHECK(power_manager_init());
 
-    // Check if this is a timer wakeup for auto-rotate
+    // Check wake-up source with priority: Timer > KEY > BOOT
     if (power_manager_is_timer_wakeup()) {
         ESP_LOGI(TAG, "Timer wakeup detected - auto-rotate and sleep");
         display_manager_handle_timer_wakeup();
@@ -210,17 +210,22 @@ void app_main(void)
         ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");
         power_manager_enter_sleep_with_timer(display_manager_get_rotate_interval());
         // Won't reach here after sleep
-    }
-
-    // Check if this is a KEY button wakeup for manual rotation
-    if (power_manager_is_ext1_wakeup()) {
+    } else if (power_manager_is_key_button_wakeup()) {
         ESP_LOGI(TAG, "KEY button wakeup detected - rotate and sleep");
         display_manager_handle_timer_wakeup();
 
         // Go directly back to sleep without starting WiFi or HTTP server
+        // Need to reschedule auto-rotate timer if enabled (RTC timer is one-shot)
         ESP_LOGI(TAG, "Manual rotation complete, going back to sleep");
-        power_manager_enter_sleep_with_timer(display_manager_get_rotate_interval());
+        if (display_manager_get_auto_rotate()) {
+            power_manager_enter_sleep_with_timer(display_manager_get_rotate_interval());
+        } else {
+            power_manager_enter_sleep();
+        }
         // Won't reach here after sleep
+    } else if (power_manager_is_boot_button_wakeup()) {
+        ESP_LOGI(TAG, "BOOT button wakeup detected - starting WiFi and HTTP server");
+        // Continue with normal initialization
     }
 
     ESP_ERROR_CHECK(wifi_manager_init());

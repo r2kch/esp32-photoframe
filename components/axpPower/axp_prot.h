@@ -18,6 +18,7 @@ int axp_get_battery_percent(void);
 int axp_get_battery_voltage(void);
 bool axp_is_charging(void);
 bool axp_is_battery_connected(void);
+bool axp_is_usb_connected(void);
 
 // Power control functions
 void axp_shutdown(void);

@@ -47,9 +47,24 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 
 ## Power Management
 
-- **Smart Auto-Sleep**: Device sleeps after 2 minutes of inactivity to preserve battery
-- **HTTP Activity Detection**: Any web interaction automatically resets the sleep timer
-- **Boot Button Wake**: Press the boot button to wake the device and access the web interface
+The firmware implements intelligent power management that adapts based on the power source:
+
+### When USB Connected
+- **Auto-Sleep**: Disabled (device stays awake indefinitely)
+- **Auto-Rotate**: Uses active countdown timer (works while device is awake)
+- **Web Interface**: Always accessible
+- **Battery Charging**: Limited to 500mA for USB 2.0 compatibility
+- **Use Case**: Ideal for development, testing, or continuous display
+
+### When Running on Battery
+- **Auto-Sleep**: Enabled - device enters deep sleep after 2 minutes of inactivity
+- **Auto-Rotate**: Uses timer-based wake-up from deep sleep
+- **Sleep Timer Reset**: Any HTTP interaction or button press resets the 2-minute countdown
+- **Wake-Up Methods**:
+  - Boot button (GPIO 0) - wakes device and starts HTTP server
+  - Key button (GPIO 4) - wakes device and triggers image rotation
+  - Auto-rotate timer - wakes device at configured interval
+- **Use Case**: Battery-efficient operation for portable/standalone use
 
 ## Hardware
 
