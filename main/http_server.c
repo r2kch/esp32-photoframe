@@ -429,6 +429,27 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
     return ESP_FAIL;
 }
 
+// URL decode helper function to handle encoded characters like %20 for space
+static void url_decode(char *dst, const char *src, size_t dst_size)
+{
+    size_t i = 0, j = 0;
+    while (src[i] && j < dst_size - 1) {
+        if (src[i] == '%' && src[i + 1] && src[i + 2]) {
+            // Convert hex to char
+            char hex[3] = {src[i + 1], src[i + 2], '\0'};
+            dst[j++] = (char) strtol(hex, NULL, 16);
+            i += 3;
+        } else if (src[i] == '+') {
+            // '+' is also used for space in query strings
+            dst[j++] = ' ';
+            i++;
+        } else {
+            dst[j++] = src[i++];
+        }
+    }
+    dst[j] = '\0';
+}
+
 static esp_err_t serve_image_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -455,21 +476,25 @@ static esp_err_t serve_image_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    // URL decode the filename to handle spaces and special characters
+    char decoded_filename[128];
+    url_decode(decoded_filename, param_value, sizeof(decoded_filename));
+
     char filepath[256];
     const char *content_type = "image/jpeg";
 
     // Try to serve JPG thumbnail first
-    snprintf(filepath, sizeof(filepath), "%s/%s", IMAGE_DIRECTORY, param_value);
+    snprintf(filepath, sizeof(filepath), "%s/%s", IMAGE_DIRECTORY, decoded_filename);
 
     FILE *fp = fopen(filepath, "rb");
 
     // If JPG doesn't exist and request was for .jpg, try .bmp fallback
     if (!fp) {
-        char *ext = strrchr(param_value, '.');
+        char *ext = strrchr(decoded_filename, '.');
         if (ext && strcasecmp(ext, ".jpg") == 0) {
             // Convert .jpg to .bmp for fallback
             char bmp_filename[128];
-            strncpy(bmp_filename, param_value, sizeof(bmp_filename) - 1);
+            strncpy(bmp_filename, decoded_filename, sizeof(bmp_filename) - 1);
             char *bmp_ext = strrchr(bmp_filename, '.');
             if (bmp_ext) {
                 strcpy(bmp_ext, ".bmp");
