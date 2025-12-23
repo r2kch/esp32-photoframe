@@ -23,6 +23,32 @@ const PALETTE_THEORETICAL = [
     [0, 255, 0]       // Green
 ];
 
+function applyExposure(imageData, exposure) {
+    if (exposure === 1.0) return;
+    
+    const data = imageData.data;
+    
+    for (let i = 0; i < data.length; i += 4) {
+        data[i] = Math.min(255, Math.round(data[i] * exposure));
+        data[i + 1] = Math.min(255, Math.round(data[i + 1] * exposure));
+        data[i + 2] = Math.min(255, Math.round(data[i + 2] * exposure));
+    }
+}
+
+function applyContrast(imageData, contrast) {
+    if (contrast === 1.0) return;
+    
+    const data = imageData.data;
+    const factor = contrast;
+    
+    for (let i = 0; i < data.length; i += 4) {
+        // Apply contrast adjustment around midpoint (128)
+        data[i] = Math.max(0, Math.min(255, Math.round((data[i] - 128) * factor + 128)));
+        data[i + 1] = Math.max(0, Math.min(255, Math.round((data[i + 1] - 128) * factor + 128)));
+        data[i + 2] = Math.max(0, Math.min(255, Math.round((data[i + 2] - 128) * factor + 128)));
+    }
+}
+
 function applySaturation(imageData, saturation) {
     if (saturation === 1.0) return;
     
@@ -282,32 +308,45 @@ function applyFloydSteinbergDither(imageData, method = 'rgb', outputPalette = PA
 }
 
 function processImage(imageData, params) {
-    // Processing mode: 'stock' (Waveshare original) or 'enhanced' (our algorithm with S-curve)
+    // Processing mode: 'stock' (Waveshare original) or 'enhanced' (our algorithm)
     const mode = params.processingMode || 'enhanced';
+    const toneMode = params.toneMode || 'scurve'; // 'contrast' or 'scurve'
     
     if (mode === 'stock') {
-        // Stock Waveshare algorithm: no S-curve, theoretical palette for dithering
+        // Stock Waveshare algorithm: no tone mapping, theoretical palette for dithering
         // But render with measured palette for accurate preview
         const outputPalette = params.renderMeasured ? PALETTE_MEASURED : PALETTE_THEORETICAL;
         applyFloydSteinbergDither(imageData, 'rgb', outputPalette, PALETTE_THEORETICAL);
     } else {
-        // Enhanced algorithm with S-curve tone mapping
+        // Enhanced algorithm with tone mapping
         
-        // 1. Apply saturation
+        // 1. Apply exposure
+        if (params.exposure && params.exposure !== 1.0) {
+            applyExposure(imageData, params.exposure);
+        }
+        
+        // 2. Apply saturation
         if (params.saturation !== 1.0) {
             applySaturation(imageData, params.saturation);
         }
         
-        // 2. Apply S-curve tone mapping
-        applyScurveTonemap(
-            imageData,
-            params.strength,
-            params.shadowBoost,
-            params.highlightCompress,
-            params.midpoint
-        );
+        // 3. Apply tone mapping (contrast or S-curve)
+        if (toneMode === 'contrast') {
+            if (params.contrast && params.contrast !== 1.0) {
+                applyContrast(imageData, params.contrast);
+            }
+        } else {
+            // S-curve tone mapping
+            applyScurveTonemap(
+                imageData,
+                params.strength,
+                params.shadowBoost,
+                params.highlightCompress,
+                params.midpoint
+            );
+        }
         
-        // 3. Apply Floyd-Steinberg dithering with measured palette for accurate error diffusion
+        // 4. Apply Floyd-Steinberg dithering with measured palette for accurate error diffusion
         const outputPalette = params.renderMeasured ? PALETTE_MEASURED : PALETTE_THEORETICAL;
         applyFloydSteinbergDither(imageData, params.colorMethod, outputPalette, PALETTE_MEASURED);
     }
@@ -317,6 +356,8 @@ function processImage(imageData, params) {
 export {
     PALETTE_MEASURED,
     PALETTE_THEORETICAL,
+    applyExposure,
+    applyContrast,
     applySaturation,
     applyScurveTonemap,
     applyFloydSteinbergDither,

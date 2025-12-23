@@ -1,4 +1,4 @@
-import { processImage, applySaturation, applyScurveTonemap } from './image-processor.js';
+import { processImage, applyExposure, applyContrast, applySaturation, applyScurveTonemap } from './image-processor.js';
 
 const API_BASE = '';
 
@@ -214,14 +214,17 @@ let currentImageFile = null;
 let currentImageCanvas = null;
 let originalImageData = null; // Store original unprocessed image data
 let currentParams = {
+    exposure: 1.0,
+    saturation: 1.5,
+    toneMode: 'scurve',  // 'contrast' or 'scurve'
+    contrast: 1.0,
     strength: 0.9,
     shadowBoost: 0.0,
     highlightCompress: 1.5,
     midpoint: 0.5,
-    saturation: 1.5,
     colorMethod: 'rgb',  // 'rgb' or 'lab'
     renderMeasured: true,  // true = measured (darker) colors matching e-paper display
-    processingMode: 'enhanced'  // 'stock' (Waveshare original) or 'enhanced' (our algorithm with S-curve)
+    processingMode: 'enhanced'  // 'stock' (Waveshare original) or 'enhanced' (our algorithm)
 };
 
 document.getElementById('fileInput').addEventListener('change', async (e) => {
@@ -550,6 +553,24 @@ ctx.drawImage(tempCanvas, 0, 0);
 }
 
 // Parameter change handlers
+document.getElementById('exposure').addEventListener('input', (e) => {
+    currentParams.exposure = parseFloat(e.target.value);
+    document.getElementById('exposureValue').textContent = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('saturation').addEventListener('input', (e) => {
+    currentParams.saturation = parseFloat(e.target.value);
+    document.getElementById('saturationValue').textContent = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('contrast').addEventListener('input', (e) => {
+    currentParams.contrast = parseFloat(e.target.value);
+    document.getElementById('contrastValue').textContent = e.target.value;
+    updatePreview();
+});
+
 document.getElementById('scurveStrength').addEventListener('input', (e) => {
     currentParams.strength = parseFloat(e.target.value);
     document.getElementById('strengthValue').textContent = e.target.value;
@@ -574,16 +595,34 @@ document.getElementById('scurveMidpoint').addEventListener('input', (e) => {
     updatePreview();
 });
 
-document.getElementById('saturation').addEventListener('input', (e) => {
-    currentParams.saturation = parseFloat(e.target.value);
-    document.getElementById('saturationValue').textContent = e.target.value;
-    updatePreview();
-});
-
 // Color matching method radio buttons
 document.querySelectorAll('input[name="colorMethod"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         currentParams.colorMethod = e.target.value;
+        updatePreview();
+    });
+});
+
+// Tone mode radio buttons
+document.querySelectorAll('input[name="toneMode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        currentParams.toneMode = e.target.value;
+        
+        // Show/hide contrast or S-curve controls based on mode
+        const contrastControl = document.getElementById('contrastControl');
+        const scurveControls = document.getElementById('scurveControls');
+        const curveCanvasWrapper = document.querySelector('.curve-canvas-wrapper');
+        
+        if (e.target.value === 'contrast') {
+            contrastControl.style.display = 'block';
+            scurveControls.style.display = 'none';
+            curveCanvasWrapper.style.display = 'none';
+        } else {
+            contrastControl.style.display = 'none';
+            scurveControls.style.display = 'grid';
+            curveCanvasWrapper.style.display = 'block';
+        }
+        
         updatePreview();
     });
 });
@@ -593,15 +632,18 @@ document.querySelectorAll('input[name="processingMode"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         currentParams.processingMode = e.target.value;
         
-        // Show/hide S-curve controls and canvas based on mode
-        const controlsGrid = document.querySelector('.controls-grid');
+        // Show/hide enhanced controls and canvas based on mode
+        const enhancedControls = document.getElementById('enhancedControls');
         const curveCanvasWrapper = document.querySelector('.curve-canvas-wrapper');
         if (e.target.value === 'stock') {
-            controlsGrid.style.display = 'none';
+            enhancedControls.style.display = 'none';
             curveCanvasWrapper.style.display = 'none';
         } else {
-            controlsGrid.style.display = 'grid';
-            curveCanvasWrapper.style.display = 'block';
+            enhancedControls.style.display = 'grid';
+            // Show curve canvas only if S-curve mode is selected
+            if (currentParams.toneMode === 'scurve') {
+                curveCanvasWrapper.style.display = 'block';
+            }
         }
         
         updatePreview();
@@ -625,16 +667,25 @@ document.getElementById('discardImage').addEventListener('click', () => {
 // Reset to defaults
 document.getElementById('resetParams').addEventListener('click', () => {
     currentParams = {
+        exposure: 1.0,
+        saturation: 1.5,
+        toneMode: 'scurve',
+        contrast: 1.0,
         strength: 0.9,
         shadowBoost: 0.0,
         highlightCompress: 1.5,
         midpoint: 0.5,
-        saturation: 1.5,
         colorMethod: 'rgb',
         renderMeasured: true,
         processingMode: 'enhanced'
     };
     
+    document.getElementById('exposure').value = 1.0;
+    document.getElementById('exposureValue').textContent = '1.0';
+    document.getElementById('saturation').value = 1.5;
+    document.getElementById('saturationValue').textContent = '1.5';
+    document.getElementById('contrast').value = 1.0;
+    document.getElementById('contrastValue').textContent = '1.0';
     document.getElementById('scurveStrength').value = 0.9;
     document.getElementById('strengthValue').textContent = '0.9';
     document.getElementById('scurveShadow').value = 0.0;
@@ -643,11 +694,12 @@ document.getElementById('resetParams').addEventListener('click', () => {
     document.getElementById('highlightValue').textContent = '1.5';
     document.getElementById('scurveMidpoint').value = 0.5;
     document.getElementById('midpointValue').textContent = '0.5';
-    document.getElementById('saturation').value = 1.5;
-    document.getElementById('saturationValue').textContent = '1.5';
     document.querySelector('input[name="colorMethod"][value="rgb"]').checked = true;
+    document.querySelector('input[name="toneMode"][value="scurve"]').checked = true;
     document.querySelector('input[name="processingMode"][value="enhanced"]').checked = true;
-    document.querySelector('.controls-grid').style.display = 'grid';
+    document.getElementById('enhancedControls').style.display = 'grid';
+    document.getElementById('contrastControl').style.display = 'none';
+    document.getElementById('scurveControls').style.display = 'grid';
     document.querySelector('.curve-canvas-wrapper').style.display = 'block';
     
     updatePreview();
@@ -684,7 +736,7 @@ document.getElementById('uploadProcessed').addEventListener('click', async () =>
             // Stock mode: send raw scaled/cropped image (no processing)
             imageBlob = await resizeImage(currentImageFile, 800, 480, 0.90);
         } else {
-            // Enhanced mode: apply S-curve and saturation, but NO dithering
+            // Enhanced mode: apply exposure, saturation, and tone mapping, but NO dithering
             // Create a temporary canvas for processing
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = originalImageData.width;
@@ -695,18 +747,31 @@ document.getElementById('uploadProcessed').addEventListener('click', async () =>
             const imageDataCopy = tempCtx.createImageData(originalImageData.width, originalImageData.height);
             imageDataCopy.data.set(originalImageData.data);
             
-            // Apply S-curve and saturation (imported from image-processor.js)
+            // Apply exposure
+            if (currentParams.exposure && currentParams.exposure !== 1.0) {
+                applyExposure(imageDataCopy, currentParams.exposure);
+            }
+            
+            // Apply saturation
             if (currentParams.saturation !== 1.0) {
                 applySaturation(imageDataCopy, currentParams.saturation);
             }
             
-            applyScurveTonemap(
-                imageDataCopy,
-                currentParams.strength,
-                currentParams.shadowBoost,
-                currentParams.highlightCompress,
-                currentParams.midpoint
-            );
+            // Apply tone mapping (contrast or S-curve)
+            if (currentParams.toneMode === 'contrast') {
+                if (currentParams.contrast && currentParams.contrast !== 1.0) {
+                    applyContrast(imageDataCopy, currentParams.contrast);
+                }
+            } else {
+                // S-curve tone mapping
+                applyScurveTonemap(
+                    imageDataCopy,
+                    currentParams.strength,
+                    currentParams.shadowBoost,
+                    currentParams.highlightCompress,
+                    currentParams.midpoint
+                );
+            }
             
             // Put processed data to canvas (NO dithering)
             tempCtx.putImageData(imageDataCopy, 0, 0);

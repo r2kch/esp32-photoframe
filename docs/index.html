@@ -558,11 +558,13 @@
                         </div>
                     </div>
 
-                    <div class="curve-canvas-wrapper" id="curveWrapper" style="flex: 0 0 auto;">
-                        <canvas id="curveCanvas" width="300" height="300"></canvas>
-                        <div class="preview-label">S-Curve Tone Mapping</div>
+                    <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 20px;">
+                        <div class="curve-canvas-wrapper" id="curveWrapper">
+                            <canvas id="curveCanvas" width="300" height="300"></canvas>
+                            <div class="preview-label">S-Curve Tone Mapping</div>
+                        </div>
                         
-                        <div class="form-group" style="margin-top: 20px; text-align: left;">
+                        <div class="form-group" style="text-align: left;">
                             <label>Preview Rendering Palette:</label>
                             <div style="margin-top: 8px;">
                                 <label style="display: block; margin-bottom: 5px;">
@@ -579,48 +581,93 @@
                     </div>
                 </div>
 
-                <div class="controls-grid" id="controlsGrid">
-                    <div class="form-group">
-                        <label for="scurveStrength">S-Curve Strength: <span id="strengthValue">0.9</span></label>
-                        <input type="range" id="scurveStrength" min="0" max="1" step="0.1" value="0.9">
-                        <small>Overall tone mapping strength (0=linear, 1=strong)</small>
+                <div id="controlsGrid">
+                    <!-- Row 1: Color Matching Method -->
+                    <div class="controls-grid" style="margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Color Matching Method:</label>
+                            <div style="margin-top: 8px;">
+                                <label style="display: block; margin-bottom: 5px;">
+                                    <input type="radio" name="colorMethod" value="rgb" checked style="margin-right: 5px;">
+                                    Simple RGB (default)
+                                </label>
+                                <label style="display: block;">
+                                    <input type="radio" name="colorMethod" value="lab" style="margin-right: 5px;">
+                                    LAB Color Space (better for grayscale)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Row 2: Exposure & Saturation -->
+                    <div class="controls-grid" style="margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label for="exposure">Exposure: <span id="exposureValue">1.0</span></label>
+                            <input type="range" id="exposure" min="0.5" max="2.0" step="0.1" value="1.0">
+                            <small>Overall brightness (1.0=normal, >1.0=brighter)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="saturation">Saturation: <span id="saturationValue">1.5</span></label>
+                            <input type="range" id="saturation" min="0.5" max="2" step="0.1" value="1.5">
+                            <small>Color vibrancy (1.0=normal, >1.0=more vibrant)</small>
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="scurveShadow">Shadow Boost: <span id="shadowValue">0.0</span></label>
-                        <input type="range" id="scurveShadow" min="0" max="1" step="0.1" value="0.0">
-                        <small>Brighten shadow areas (higher=brighter)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="scurveHighlight">Highlight Compress: <span id="highlightValue">1.7</span></label>
-                        <input type="range" id="scurveHighlight" min="0.5" max="5" step="0.1" value="1.7">
-                        <small>Protect highlights from over-exposure (higher=more protection)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="scurveMidpoint">Midpoint: <span id="midpointValue">0.5</span></label>
-                        <input type="range" id="scurveMidpoint" min="0.3" max="0.7" step="0.05" value="0.5">
-                        <small>Where to split shadows/highlights</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="saturation">Saturation: <span id="saturationValue">1.5</span></label>
-                        <input type="range" id="saturation" min="0.5" max="2" step="0.1" value="1.5">
-                        <small>Color vibrancy (1.0=normal, >1.0=more vibrant)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Color Matching Method:</label>
+                    <!-- Row 3: Tone Mapping Selection -->
+                    <div class="form-group" style="margin-bottom: 15px;">
+                        <label>Tone Mapping:</label>
                         <div style="margin-top: 8px;">
                             <label style="display: block; margin-bottom: 5px;">
-                                <input type="radio" name="colorMethod" value="rgb" checked style="margin-right: 5px;">
-                                Simple RGB (default)
+                                <input type="radio" name="toneMode" value="scurve" checked style="margin-right: 5px;">
+                                S-Curve (Advanced)
                             </label>
                             <label style="display: block;">
-                                <input type="radio" name="colorMethod" value="lab" style="margin-right: 5px;">
-                                LAB Color Space (better for grayscale)
+                                <input type="radio" name="toneMode" value="contrast" style="margin-right: 5px;">
+                                Contrast (Simple)
                             </label>
+                        </div>
+                    </div>
+
+                    <!-- Contrast Control (Simple) -->
+                    <div id="contrastControl" style="display: none; margin-bottom: 20px;">
+                        <div class="controls-grid">
+                            <div class="form-group">
+                                <label for="contrast">Contrast: <span id="contrastValue">1.0</span></label>
+                                <input type="range" id="contrast" min="0.5" max="2.0" step="0.1" value="1.0">
+                                <small>Tonal range (1.0=normal, >1.0=more contrast)</small>
+                            </div>
+                            <div></div><!-- Empty placeholder to maintain grid layout -->
+                        </div>
+                    </div>
+
+                    <!-- S-Curve Controls (Advanced) - Visually Grouped -->
+                    <div id="scurveControls" style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 20px;">
+                        <div style="font-weight: 600; margin-bottom: 12px; color: #667eea;">S-Curve Parameters</div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                            <div class="form-group">
+                                <label for="scurveStrength">Strength: <span id="strengthValue">0.9</span></label>
+                                <input type="range" id="scurveStrength" min="0" max="1" step="0.1" value="0.9">
+                                <small>Overall tone mapping strength (0=linear, 1=strong)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="scurveShadow">Shadow Boost: <span id="shadowValue">0.0</span></label>
+                                <input type="range" id="scurveShadow" min="0" max="1" step="0.1" value="0.0">
+                                <small>Brighten shadow areas (higher=brighter)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="scurveHighlight">Highlight Compress: <span id="highlightValue">1.7</span></label>
+                                <input type="range" id="scurveHighlight" min="0.5" max="5" step="0.1" value="1.7">
+                                <small>Protect highlights from over-exposure (higher=more protection)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="scurveMidpoint">Midpoint: <span id="midpointValue">0.5</span></label>
+                                <input type="range" id="scurveMidpoint" min="0.3" max="0.7" step="0.05" value="0.5">
+                                <small>Where to split shadows/highlights</small>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -707,18 +754,40 @@
     </div>
 
     <script type="module">
-        // Tab switching
+        // Tab switching function
+        function switchTab(tabName) {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            const tab = document.querySelector(`.nav-tab[data-tab="${tabName}"]`);
+            const content = document.getElementById(`${tabName}-tab`);
+            
+            if (tab && content) {
+                tab.classList.add('active');
+                content.classList.add('active');
+                window.location.hash = tabName;
+            }
+        }
+        
+        // Tab click handlers
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.addEventListener('click', () => {
-                const tabName = tab.dataset.tab;
-                
-                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
-                tab.classList.add('active');
-                document.getElementById(`${tabName}-tab`).classList.add('active');
+                switchTab(tab.dataset.tab);
             });
         });
+        
+        // Handle hash navigation on page load and hash change
+        function handleHashChange() {
+            const hash = window.location.hash.substring(1);
+            if (hash && (hash === 'demo' || hash === 'flash')) {
+                switchTab(hash);
+            } else if (!hash) {
+                switchTab('demo'); // Default to demo tab
+            }
+        }
+        
+        window.addEventListener('hashchange', handleHashChange);
+        handleHashChange(); // Initialize on page load
 
         // Fetch the latest release info from GitHub API
         async function getLatestRelease() {
@@ -748,11 +817,14 @@
         let isDragging = false;
 
         const enhancedParams = {
+            exposure: 1.0,
+            saturation: 1.5,
+            toneMode: 'scurve',
+            contrast: 1.0,
             strength: 0.9,
             shadowBoost: 0.0,
             highlightCompress: 1.5,
             midpoint: 0.5,
-            saturation: 1.5,
             colorMethod: 'rgb',
             renderMeasured: true,
             processingMode: 'enhanced'
@@ -999,6 +1071,24 @@
             stockCanvas.style.clipPath = `inset(0 ${(1 - sliderPosition) * 100}% 0 0)`;
         }
 
+        document.getElementById('exposure').addEventListener('input', (e) => {
+            enhancedParams.exposure = parseFloat(e.target.value);
+            document.getElementById('exposureValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.getElementById('saturation').addEventListener('input', (e) => {
+            enhancedParams.saturation = parseFloat(e.target.value);
+            document.getElementById('saturationValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.getElementById('contrast').addEventListener('input', (e) => {
+            enhancedParams.contrast = parseFloat(e.target.value);
+            document.getElementById('contrastValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
         document.getElementById('scurveStrength').addEventListener('input', (e) => {
             enhancedParams.strength = parseFloat(e.target.value);
             document.getElementById('strengthValue').textContent = e.target.value;
@@ -1023,15 +1113,31 @@
             updatePreviews();
         });
 
-        document.getElementById('saturation').addEventListener('input', (e) => {
-            enhancedParams.saturation = parseFloat(e.target.value);
-            document.getElementById('saturationValue').textContent = e.target.value;
-            updatePreviews();
-        });
-
         document.querySelectorAll('input[name="colorMethod"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
                 enhancedParams.colorMethod = e.target.value;
+                updatePreviews();
+            });
+        });
+
+        document.querySelectorAll('input[name="toneMode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                enhancedParams.toneMode = e.target.value;
+                
+                const contrastControl = document.getElementById('contrastControl');
+                const scurveControls = document.getElementById('scurveControls');
+                const curveWrapper = document.getElementById('curveWrapper');
+                
+                if (e.target.value === 'contrast') {
+                    contrastControl.style.display = 'block';
+                    scurveControls.style.display = 'none';
+                    curveWrapper.style.display = 'none';
+                } else {
+                    contrastControl.style.display = 'none';
+                    scurveControls.style.display = 'grid';
+                    curveWrapper.style.display = 'block';
+                }
+                
                 updatePreviews();
             });
         });
@@ -1046,13 +1152,22 @@
         });
 
         document.getElementById('resetParams').addEventListener('click', () => {
+            enhancedParams.exposure = 1.0;
+            enhancedParams.saturation = 1.5;
+            enhancedParams.toneMode = 'scurve';
+            enhancedParams.contrast = 1.0;
             enhancedParams.strength = 0.9;
             enhancedParams.shadowBoost = 0.0;
             enhancedParams.highlightCompress = 1.5;
             enhancedParams.midpoint = 0.5;
-            enhancedParams.saturation = 1.5;
             enhancedParams.colorMethod = 'rgb';
 
+            document.getElementById('exposure').value = 1.0;
+            document.getElementById('exposureValue').textContent = '1.0';
+            document.getElementById('saturation').value = 1.5;
+            document.getElementById('saturationValue').textContent = '1.5';
+            document.getElementById('contrast').value = 1.0;
+            document.getElementById('contrastValue').textContent = '1.0';
             document.getElementById('scurveStrength').value = 0.9;
             document.getElementById('strengthValue').textContent = '0.9';
             document.getElementById('scurveShadow').value = 0.0;
@@ -1061,9 +1176,11 @@
             document.getElementById('highlightValue').textContent = '1.5';
             document.getElementById('scurveMidpoint').value = 0.5;
             document.getElementById('midpointValue').textContent = '0.5';
-            document.getElementById('saturation').value = 1.5;
-            document.getElementById('saturationValue').textContent = '1.5';
             document.querySelector('input[name="colorMethod"][value="rgb"]').checked = true;
+            document.querySelector('input[name="toneMode"][value="scurve"]').checked = true;
+            document.getElementById('contrastControl').style.display = 'none';
+            document.getElementById('scurveControls').style.display = 'grid';
+            document.getElementById('curveWrapper').style.display = 'block';
 
             updatePreviews();
         });
