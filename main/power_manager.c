@@ -115,16 +115,18 @@ static void sleep_timer_task(void *arg)
 
 esp_err_t power_manager_init(void)
 {
-    last_wakeup_cause = esp_sleep_get_wakeup_cause();
+    // Get wakeup causes bitmap (new API in ESP-IDF v6.0)
+    uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
     ext1_wakeup_pin_mask = 0;
 
-    switch (last_wakeup_cause) {
-    case ESP_SLEEP_WAKEUP_TIMER:
+    // Convert bitmap to single cause for backward compatibility
+    if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_TIMER;
         ESP_LOGI(TAG, "Wakeup caused by timer (auto-rotate)");
         // Disable auto-sleep for timer wakeup - device will go back to sleep immediately
         sleep_enabled = false;
-        break;
-    case ESP_SLEEP_WAKEUP_EXT1:
+    } else if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_EXT1)) {
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_EXT1;
         // ESP32-S3 only supports EXT1, check which GPIO triggered it
         ext1_wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
 
@@ -135,11 +137,9 @@ esp_err_t power_manager_init(void)
         } else {
             ESP_LOGI(TAG, "Wakeup caused by EXT1 (unknown GPIO: 0x%llx)", ext1_wakeup_pin_mask);
         }
-        break;
-    case ESP_SLEEP_WAKEUP_UNDEFINED:
-    default:
+    } else {
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_UNDEFINED;
         ESP_LOGI(TAG, "Not a deep sleep wakeup");
-        break;
     }
 
     // Configure button GPIOs as input with pull-ups
