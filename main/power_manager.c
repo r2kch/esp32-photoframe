@@ -7,6 +7,7 @@
 #include "driver/rtc_io.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "http_server.h"
@@ -15,10 +16,10 @@ static const char *TAG = "power_manager";
 
 static TaskHandle_t sleep_timer_task_handle = NULL;
 static TaskHandle_t rotation_timer_task_handle = NULL;
-static uint32_t sleep_countdown = AUTO_SLEEP_TIMEOUT_SEC;
-static bool sleep_enabled = true;  // Enabled by default to prevent battery drain
+static int64_t next_sleep_time = 0;  // Use absolute time for sleep timer
+static bool sleep_enabled = true;    // Enabled by default to prevent battery drain
 static esp_sleep_wakeup_cause_t last_wakeup_cause = ESP_SLEEP_WAKEUP_UNDEFINED;
-static uint32_t rotate_countdown = 0;
+static int64_t next_rotation_time = 0;  // Use absolute time for rotation
 static uint64_t ext1_wakeup_pin_mask = 0;
 
 static void rotation_timer_task(void *arg)
@@ -28,58 +29,83 @@ static void rotation_timer_task(void *arg)
 
         // Only run active rotation when USB is connected (device stays awake)
         if (!axp_is_usb_connected()) {
-            rotate_countdown = 0;  // Reset when on battery (uses sleep-based rotation)
+            next_rotation_time = 0;  // Reset when on battery (uses sleep-based rotation)
             continue;
         }
 
         // Handle active rotation when USB connected and auto-rotate enabled
         if (display_manager_get_auto_rotate()) {
-            if (rotate_countdown == 0) {
-                // Initialize rotation countdown
-                rotate_countdown = display_manager_get_rotate_interval();
-            } else {
-                rotate_countdown--;
-                if (rotate_countdown == 0) {
-                    ESP_LOGI(TAG, "Active rotation triggered (USB powered)");
-                    display_manager_handle_timer_wakeup();
-                    rotate_countdown = display_manager_get_rotate_interval();
-                }
+            int64_t now = esp_timer_get_time();  // Get absolute time in microseconds
+
+            if (next_rotation_time == 0) {
+                // Initialize next rotation time
+                int rotate_interval = display_manager_get_rotate_interval();
+                next_rotation_time = now + (rotate_interval * 1000000LL);
+                ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (USB powered)",
+                         rotate_interval);
+            } else if (now >= next_rotation_time) {
+                // Time to rotate
+                ESP_LOGI(TAG, "Active rotation triggered (USB powered)");
+                display_manager_handle_timer_wakeup();
+
+                // Schedule next rotation
+                int rotate_interval = display_manager_get_rotate_interval();
+                next_rotation_time = now + (rotate_interval * 1000000LL);
+                ESP_LOGI(TAG, "Next rotation scheduled in %d seconds", rotate_interval);
             }
         } else {
-            rotate_countdown = 0;  // Reset if auto-rotate disabled
+            next_rotation_time = 0;  // Reset if auto-rotate disabled
         }
     }
 }
 
 static void sleep_timer_task(void *arg)
 {
+    int64_t last_blink_time = 0;
+    int64_t last_log_time = 0;
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
         // Skip auto-sleep when USB is connected
         if (axp_is_usb_connected()) {
-            // Reset countdown so it doesn't trigger immediately when USB is unplugged
-            sleep_countdown = AUTO_SLEEP_TIMEOUT_SEC;
+            // Reset timer so it doesn't trigger immediately when USB is unplugged
+            next_sleep_time = 0;
             continue;
         }
 
-        // Handle auto-sleep countdown when on battery
-        if (sleep_enabled && sleep_countdown > 0) {
-            sleep_countdown--;
+        // Handle auto-sleep timer when on battery
+        if (sleep_enabled) {
+            int64_t now = esp_timer_get_time();
 
-            // Visual indicator: blink GREEN LED every 10 seconds to show countdown is active
-            if (sleep_countdown % 10 == 0) {
-                gpio_set_level(LED_GREEN_GPIO, 0);  // Turn on (active-low)
-                vTaskDelay(pdMS_TO_TICKS(200));
-                gpio_set_level(LED_GREEN_GPIO, 1);  // Turn off
+            if (next_sleep_time == 0) {
+                // Initialize sleep timer
+                next_sleep_time = now + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
+                last_blink_time = now;
+                last_log_time = now;
+                ESP_LOGI(TAG, "Auto-sleep timer started, will sleep in %d seconds",
+                         AUTO_SLEEP_TIMEOUT_SEC);
             }
 
-            // Log countdown every 30 seconds
-            if (sleep_countdown % 30 == 0 && sleep_countdown > 0) {
-                ESP_LOGI(TAG, "Auto-sleep countdown: %lu seconds remaining", sleep_countdown);
-            }
+            int64_t remaining_us = next_sleep_time - now;
+            int32_t remaining_sec = (int32_t) (remaining_us / 1000000LL);
 
-            if (sleep_countdown == 0) {
+            if (remaining_sec > 0) {
+                // Visual indicator: blink GREEN LED every 10 seconds
+                if ((now - last_blink_time) >= 10000000LL) {
+                    gpio_set_level(LED_GREEN_GPIO, 0);  // Turn on (active-low)
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    gpio_set_level(LED_GREEN_GPIO, 1);  // Turn off
+                    last_blink_time = now;
+                }
+
+                // Log countdown every 30 seconds
+                if ((now - last_log_time) >= 30000000LL) {
+                    ESP_LOGI(TAG, "Auto-sleep countdown: %ld seconds remaining", remaining_sec);
+                    last_log_time = now;
+                }
+            } else {
+                // Time to sleep
                 ESP_LOGI(TAG, "Sleep timeout reached, entering deep sleep");
                 power_manager_enter_sleep();
             }
@@ -212,13 +238,16 @@ void power_manager_trigger_sleep(void)
 
 void power_manager_reset_sleep_timer(void)
 {
-    sleep_countdown = AUTO_SLEEP_TIMEOUT_SEC;
+    next_sleep_time = esp_timer_get_time() + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
     sleep_enabled = true;  // Enable sleep timer when user interacts with web server
+    ESP_LOGI(TAG, "Sleep timer reset, will sleep in %d seconds", AUTO_SLEEP_TIMEOUT_SEC);
 }
 
 void power_manager_reset_rotate_timer(void)
 {
-    rotate_countdown = display_manager_get_rotate_interval();
+    int rotate_interval = display_manager_get_rotate_interval();
+    next_rotation_time = esp_timer_get_time() + (rotate_interval * 1000000LL);
+    ESP_LOGI(TAG, "Rotation timer reset, next rotation in %d seconds", rotate_interval);
 }
 
 bool power_manager_is_timer_wakeup(void)
