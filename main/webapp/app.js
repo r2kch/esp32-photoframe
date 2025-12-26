@@ -973,11 +973,6 @@ document.getElementById('configForm').addEventListener('submit', async (e) => {
     }
 });
 
-// Initial load
-loadImages();
-loadConfig();
-loadBatteryStatus();
-
 // Periodic updates - only when page is visible/focused
 let imageInterval = null;
 let batteryInterval = null;
@@ -1003,6 +998,28 @@ function stopPeriodicUpdates() {
     }
 }
 
+// Load version information from API
+async function loadVersion() {
+    try {
+        const response = await fetch(`${API_BASE}/api/version`);
+        if (!response.ok || response.headers.get('content-type')?.includes('text/html')) {
+            // Running in standalone mode without ESP32 backend
+            console.log('Version API not available (standalone mode)');
+            return;
+        }
+        const data = await response.json();
+        
+        // Update footer with version
+        const footer = document.querySelector('footer p');
+        if (footer && data.version) {
+            footer.textContent = `ESP32-S3 PhotoFrame v${data.version}`;
+        }
+    } catch (error) {
+        // Silently fail if API not available (standalone mode)
+        console.log('Version API not available (standalone mode)');
+    }
+}
+
 // Listen for page visibility changes
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -1021,3 +1038,8 @@ document.addEventListener('visibilitychange', () => {
 if (!document.hidden) {
     startPeriodicUpdates();
 }
+// Initial load
+loadImages();
+loadConfig();
+loadVersion();
+loadBatteryStatus();

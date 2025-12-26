@@ -10,6 +10,7 @@
 #include "cJSON.h"
 #include "config.h"
 #include "display_manager.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -995,6 +996,26 @@ static esp_err_t config_handler(httpd_req_t *req)
     return ESP_FAIL;
 }
 
+static esp_err_t version_handler(httpd_req_t *req)
+{
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "version", app_desc->version);
+    cJSON_AddStringToObject(response, "project_name", app_desc->project_name);
+    cJSON_AddStringToObject(response, "compile_time", app_desc->time);
+    cJSON_AddStringToObject(response, "compile_date", app_desc->date);
+    cJSON_AddStringToObject(response, "idf_version", app_desc->idf_ver);
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
 esp_err_t http_server_init(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -1080,6 +1101,12 @@ esp_err_t http_server_init(void)
         httpd_uri_t sleep_uri = {
             .uri = "/api/sleep", .method = HTTP_POST, .handler = sleep_handler, .user_ctx = NULL};
         httpd_register_uri_handler(server, &sleep_uri);
+
+        httpd_uri_t version_uri = {.uri = "/api/version",
+                                   .method = HTTP_GET,
+                                   .handler = version_handler,
+                                   .user_ctx = NULL};
+        httpd_register_uri_handler(server, &version_uri);
 
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;
