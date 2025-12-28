@@ -18,6 +18,7 @@
 
 #define SDCARD_MOUNT_POINT "/sdcard"
 #define IMAGE_DIRECTORY "/sdcard/images"
+#define DEFAULT_ALBUM_NAME "Default"
 
 #define DISPLAY_WIDTH 800
 #define DISPLAY_HEIGHT 480
@@ -32,5 +33,6 @@
 #define NVS_AUTO_ROTATE_KEY "auto_rot"
 #define NVS_CURRENT_IMAGE_KEY "curr_img"
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
+#define NVS_ENABLED_ALBUMS_KEY "enabled_albums"
 
 #endif

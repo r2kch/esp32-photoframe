@@ -8,32 +8,151 @@ All endpoints are relative to: `http://<device-ip>/`
 
 ## Endpoints
 
-### `GET /api/images`
+### `GET /api/images?album=<albumname>`
 
-List all images on the SD card with thumbnails.
+List all images in a specific album.
+
+**Parameters:**
+- `album`: Album name (e.g., `Vacation`)
+
+**Example:**
+```
+GET /api/images?album=Vacation
+```
 
 **Response:**
 ```json
-{
-  "images": [
-    {
-      "name": "photo.bmp",
-      "size": 1152000
-    }
-  ]
-}
+[
+  {
+    "name": "photo1.bmp"
+  },
+  {
+    "name": "photo2.bmp"
+  }
+]
 ```
 
 ---
 
-### `GET /api/image?name=<filename>`
+### `GET /api/image?name=<path>`
 
 Serve image thumbnail (JPEG) or fallback to BMP.
 
 **Parameters:**
-- `name`: Image filename (e.g., `photo.jpg`)
+- `name`: Image path in `album/filename` format (e.g., `Vacation/photo.jpg`)
 
 **Response:** Image file (JPEG or BMP)
+
+**Examples:**
+```
+GET /api/image?name=Vacation/photo.jpg
+GET /api/image?name=Default/photo.jpg
+```
+
+---
+
+### `GET /api/albums`
+
+List all albums with their enabled status.
+
+**Response:**
+```json
+[
+  {
+    "name": "Default",
+    "enabled": true
+  },
+  {
+    "name": "Vacation",
+    "enabled": true
+  },
+  {
+    "name": "Family",
+    "enabled": false
+  }
+]
+```
+
+**Note:** Albums marked as `enabled: true` will be included in auto-rotation.
+
+---
+
+### `POST /api/albums`
+
+Create a new album.
+
+**Request:**
+```json
+{
+  "name": "Vacation"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Album created"
+}
+```
+
+**Note:** Creates a new directory under `/sdcard/images/<albumname>/`. Album names must be valid directory names.
+
+---
+
+### `DELETE /api/albums?name=<albumname>`
+
+Delete an album and all its images.
+
+**Parameters:**
+- `name`: Album name to delete (e.g., `Vacation`)
+
+**Example:**
+```
+DELETE /api/albums?name=Vacation
+```
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
+
+**Note:** 
+- Deletes the album directory and all images within it
+- The "Default" album cannot be deleted
+- This operation is irreversible
+
+---
+
+### `PUT /api/albums/enabled?name=<albumname>`
+
+Enable or disable an album for auto-rotation.
+
+**Parameters:**
+- `name`: Album name (e.g., `Vacation`)
+
+**Request:**
+```json
+{
+  "enabled": true
+}
+```
+
+**Example:**
+```
+PUT /api/albums/enabled?name=Vacation
+```
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
+
+**Note:** Only enabled albums will be included when the device auto-rotates images.
 
 ---
 
@@ -43,9 +162,13 @@ Upload a JPEG image (automatically converted to BMP with dithering).
 
 **Request:** 
 - Content-Type: `multipart/form-data`
-- Fields:
+- Fields (sent in this order):
+  - `album`: Album name to upload to (e.g., `Vacation`, `Default`)
+  - `processingMode`: Processing mode - `enhanced` (default) or `stock`
   - `image`: Full-size JPEG (800×480 or 480×800)
   - `thumbnail`: Thumbnail JPEG (200×120 or 120×200)
+
+**Note:** Text fields (`album`, `processingMode`) must be sent **before** file fields for proper parsing.
 
 **Processing:**
 1. Client-side creates two images:
@@ -78,9 +201,11 @@ Display a specific image on the e-paper.
 **Request:**
 ```json
 {
-  "filename": "photo.bmp"
+  "filename": "Vacation/photo.bmp"
 }
 ```
+
+**Note:** Use `album/filename` format. For Default album: `"Default/photo.bmp"`
 
 **Response (Success):**
 ```json
@@ -187,7 +312,7 @@ Delete an image and its thumbnail.
 **Request:**
 ```json
 {
-  "filename": "photo.bmp"
+  "filename": "Vacation/photo.bmp"
 }
 ```
 
@@ -198,7 +323,9 @@ Delete an image and its thumbnail.
 }
 ```
 
-**Note:** Deletes both the BMP file and corresponding JPEG thumbnail.
+**Note:** 
+- Use `album/filename` format. For Default album: `"Default/photo.bmp"`
+- Deletes both the BMP file and corresponding JPEG thumbnail from the album directory
 
 ---
 

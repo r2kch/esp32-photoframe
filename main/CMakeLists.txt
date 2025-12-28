@@ -8,6 +8,7 @@ set(SOURCES
     "display_manager.c"
     "power_manager.c"
     "mdns_service.c"
+    "album_manager.c"
 )
 
 set(INCLUDE_DIRS ".")

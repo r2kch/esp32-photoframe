@@ -18,29 +18,41 @@
         </header>
 
         <section class="card">
-            <h2>Image Gallery</h2>
-            <div id="displayStatus" class="display-status" style="display: none;">
-                <div class="spinner"></div>
-                <p>Updating display... This may take up to 40 seconds</p>
+            <h2>Albums & Gallery</h2>
+            
+            <!-- Album Selection -->
+            <div style="margin-bottom: 25px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <p style="color: #666; font-size: 14px; margin: 0;">
+                        ✓ = Enabled for auto-rotation • Click album to view images
+                    </p>
+                    <button onclick="createAlbum()" class="btn-primary">+ New Album</button>
+                </div>
+                <div id="albumList" class="album-list">
+                    <p class="loading">Loading albums...</p>
+                </div>
             </div>
-            <div id="imageList" class="image-grid">
-                <p class="loading">Loading images...</p>
+            
+            <!-- Image Gallery -->
+            <div style="border-top: 2px solid #e0e0e0; padding-top: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 15px; font-size: 1.2rem;">
+                    <span id="currentAlbumName">Images</span>
+                </h3>
+                <div id="displayStatus" class="display-status" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Updating display... This may take up to 40 seconds</p>
+                </div>
+                <div id="imageList" class="image-grid">
+                    <p class="loading">Loading images...</p>
+                </div>
             </div>
         </section>
 
-        <section class="card" id="imageProcessingSection">
+        <!-- Hidden file input -->
+        <input type="file" id="fileInput" accept=".jpg,.jpeg" style="display: none;">
+        
+        <section class="card" id="imageProcessingSection" style="display: none;">
             <h2>Image Processing</h2>
-            
-            <!-- Upload Area -->
-            <div id="uploadArea">
-                <div class="upload-area">
-                    <input type="file" id="fileInput" accept=".jpg,.jpeg" required>
-                    <label for="fileInput">
-                        <span>📁 Choose JPG Image</span>
-                    </label>
-                    <div id="fileName"></div>
-                </div>
-            </div>
             
             <!-- Preview and Controls Area -->
             <div id="previewArea" style="display: none;">

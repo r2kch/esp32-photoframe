@@ -2,6 +2,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "album_manager.h"
 #include "axp_prot.h"
 #include "config.h"
 #include "display_manager.h"
@@ -213,6 +214,9 @@ void app_main(void)
         axp_shutdown();                   // Hard power-off
         // Won't reach here
     }
+
+    // Initialize album manager
+    ESP_ERROR_CHECK(album_manager_init());
 
     // Check wake-up source with priority: Timer > KEY > BOOT
     if (power_manager_is_timer_wakeup() || power_manager_is_key_button_wakeup()) {

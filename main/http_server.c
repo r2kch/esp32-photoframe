@@ -1,11 +1,13 @@
 #include "http_server.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "album_manager.h"
 #include "axp_prot.h"
 #include "cJSON.h"
 #include "config.h"
@@ -78,63 +80,6 @@ static esp_err_t favicon_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t list_images_handler(httpd_req_t *req)
-{
-    if (!system_ready) {
-        httpd_resp_set_status(req, HTTPD_503);
-        httpd_resp_sendstr(req, "System is still initializing");
-        return ESP_FAIL;
-    }
-
-    power_manager_reset_sleep_timer();
-
-    DIR *dir = opendir(IMAGE_DIRECTORY);
-    if (!dir) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open image directory");
-        return ESP_FAIL;
-    }
-
-    cJSON *root = cJSON_CreateObject();
-    cJSON *images = cJSON_CreateArray();
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {
-            // Skip macOS resource fork files (._*)
-            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
-                continue;
-            }
-
-            const char *ext = strrchr(entry->d_name, '.');
-            if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
-                cJSON *image = cJSON_CreateObject();
-                cJSON_AddStringToObject(image, "name", entry->d_name);
-
-                char filepath[512];
-                snprintf(filepath, sizeof(filepath), "%s/%s", IMAGE_DIRECTORY, entry->d_name);
-                struct stat st;
-                if (stat(filepath, &st) == 0) {
-                    cJSON_AddNumberToObject(image, "size", st.st_size);
-                }
-
-                cJSON_AddItemToArray(images, image);
-            }
-        }
-    }
-    closedir(dir);
-
-    cJSON_AddItemToObject(root, "images", images);
-
-    char *json_str = cJSON_Print(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json_str);
-
-    free(json_str);
-    cJSON_Delete(root);
-
-    return ESP_OK;
-}
-
 static esp_err_t upload_image_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -145,7 +90,7 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 
     power_manager_reset_sleep_timer();
 
-    char *buf = malloc(8192);  // Larger buffer for better boundary detection
+    char *buf = malloc(4096);  // 4KB buffer - balance between performance and memory usage
     if (!buf) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
         return ESP_FAIL;
@@ -190,19 +135,21 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
     char filename[64] = {0};
     char current_field[64] = {0};
     char processing_mode[16] = "enhanced";  // Default to enhanced mode
+    char album_name[128] = DEFAULT_ALBUM_NAME;
     bool header_parsed = false;
     int file_count = 0;
 
     FILE *fp = NULL;
-    char temp_fullsize_path[256];
-    char temp_thumb_path[256];
-    char final_bmp_path[256];
-    char final_thumb_path[256];
+    char temp_fullsize_path[512];
+    char temp_thumb_path[512];
+    char final_bmp_path[512];
+    char final_thumb_path[512];
+    char album_path[256];
 
     while (remaining > 0 || buf_len > 0) {
         // Read more data if buffer has space and there's data remaining
-        if (remaining > 0 && buf_len < 4096) {
-            int to_read = MIN(remaining, 8192 - buf_len);
+        if (remaining > 0 && buf_len < 2048) {
+            int to_read = MIN(remaining, 4096 - buf_len);
             int received = httpd_req_recv(req, buf + buf_len, to_read);
 
             if (received <= 0) {
@@ -257,22 +204,45 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
                     }
 
                     if (strcmp(current_field, "image") == 0) {
-                        snprintf(temp_fullsize_path, sizeof(temp_fullsize_path), "%s/temp_full.jpg",
-                                 IMAGE_DIRECTORY);
-                        fp = fopen(temp_fullsize_path, "wb");
-                    } else if (strcmp(current_field, "thumbnail") == 0) {
-                        snprintf(temp_thumb_path, sizeof(temp_thumb_path), "%s/temp_thumb.jpg",
-                                 IMAGE_DIRECTORY);
-                        fp = fopen(temp_thumb_path, "wb");
-                    }
+                        album_manager_get_album_path(album_name, album_path, sizeof(album_path));
 
-                    if (!fp) {
-                        free(buf);
-                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                            "Failed to create file");
-                        return ESP_FAIL;
+                        // Ensure album directory exists
+                        struct stat st;
+                        if (stat(album_path, &st) != 0) {
+                            ESP_LOGI(TAG, "Creating album directory: %s", album_path);
+                            if (mkdir(album_path, 0755) != 0) {
+                                ESP_LOGE(TAG, "Failed to create directory: %s, errno: %d",
+                                         album_path, errno);
+                                free(buf);
+                                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                                    "Failed to create album directory");
+                                return ESP_FAIL;
+                            }
+                        }
+
+                        snprintf(temp_fullsize_path, sizeof(temp_fullsize_path), "%s/temp_full.jpg",
+                                 album_path);
+                        fp = fopen(temp_fullsize_path, "wb");
+                        if (!fp) {
+                            free(buf);
+                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                                "Failed to create file");
+                            return ESP_FAIL;
+                        }
+                        file_count++;
+                    } else if (strcmp(current_field, "thumbnail") == 0) {
+                        album_manager_get_album_path(album_name, album_path, sizeof(album_path));
+                        snprintf(temp_thumb_path, sizeof(temp_thumb_path), "%s/temp_thumb.jpg",
+                                 album_path);
+                        fp = fopen(temp_thumb_path, "wb");
+                        if (!fp) {
+                            free(buf);
+                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                                "Failed to create file");
+                            return ESP_FAIL;
+                        }
+                        file_count++;
                     }
-                    file_count++;
                 }
             }
 
@@ -293,6 +263,19 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
                             strncpy(processing_mode, data_start, value_len);
                             processing_mode[value_len] = '\0';
                             ESP_LOGI(TAG, "Processing mode: %s", processing_mode);
+                        }
+                    }
+                }
+
+                // If this is the album field, capture its value
+                if (strcmp(current_field, "album") == 0) {
+                    char *value_end = strstr(data_start, "\r\n");
+                    if (value_end && value_end < buf + buf_len) {
+                        int value_len = value_end - data_start;
+                        if (value_len > 0 && value_len < sizeof(album_name)) {
+                            strncpy(album_name, data_start, value_len);
+                            album_name[value_len] = '\0';
+                            ESP_LOGI(TAG, "Album: %s", album_name);
                         }
                     }
                 }
@@ -372,9 +355,9 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 
         snprintf(bmp_filename, sizeof(bmp_filename), "%s.bmp", filename);
         snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename);
-        snprintf(final_bmp_path, sizeof(final_bmp_path), "%s/%s", IMAGE_DIRECTORY, bmp_filename);
-        snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", IMAGE_DIRECTORY,
-                 jpg_filename);
+        album_manager_get_album_path(album_name, album_path, sizeof(album_path));
+        snprintf(final_bmp_path, sizeof(final_bmp_path), "%s/%s", album_path, bmp_filename);
+        snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
 
         // Log memory before conversion
         ESP_LOGI(TAG, "Before conversion - Free heap: %lu bytes, Largest block: %lu bytes",
@@ -478,13 +461,14 @@ static esp_err_t serve_image_handler(httpd_req_t *req)
     }
 
     // URL decode the filename to handle spaces and special characters
-    char decoded_filename[128];
+    char decoded_filename[256];
     url_decode(decoded_filename, param_value, sizeof(decoded_filename));
 
-    char filepath[256];
+    char filepath[512];
     const char *content_type = "image/jpeg";
 
-    // Try to serve JPG thumbnail first
+    // Filename can be "album/file.jpg" or just "file.jpg"
+    // Build full path: /sdcard/images/ + decoded_filename
     snprintf(filepath, sizeof(filepath), "%s/%s", IMAGE_DIRECTORY, decoded_filename);
 
     FILE *fp = fopen(filepath, "rb");
@@ -494,7 +478,7 @@ static esp_err_t serve_image_handler(httpd_req_t *req)
         char *ext = strrchr(decoded_filename, '.');
         if (ext && strcasecmp(ext, ".jpg") == 0) {
             // Convert .jpg to .bmp for fallback
-            char bmp_filename[128];
+            char bmp_filename[256];
             strncpy(bmp_filename, decoded_filename, sizeof(bmp_filename) - 1);
             char *bmp_ext = strrchr(bmp_filename, '.');
             if (bmp_ext) {
@@ -568,15 +552,16 @@ static esp_err_t delete_image_handler(httpd_req_t *req)
     const char *filename = filename_obj->valuestring;
 
     // Copy filename to local buffer before deleting JSON
-    char filename_copy[128];
+    char filename_copy[256];
     strncpy(filename_copy, filename, sizeof(filename_copy) - 1);
     filename_copy[sizeof(filename_copy) - 1] = '\0';
 
-    char filepath[256];
+    // Build path - filename can be "album/file.bmp" or just "file.bmp"
+    char filepath[512];
     snprintf(filepath, sizeof(filepath), "%s/%s", IMAGE_DIRECTORY, filename_copy);
 
     // Also delete the corresponding JPEG thumbnail
-    char jpg_filename[128];
+    char jpg_filename[256];
     strncpy(jpg_filename, filename_copy, sizeof(jpg_filename) - 1);
     jpg_filename[sizeof(jpg_filename) - 1] = '\0';
     char *ext = strrchr(jpg_filename, '.');
@@ -584,7 +569,7 @@ static esp_err_t delete_image_handler(httpd_req_t *req)
         strcpy(ext, ".jpg");
     }
 
-    char jpg_path[256];
+    char jpg_path[512];
     snprintf(jpg_path, sizeof(jpg_path), "%s/%s", IMAGE_DIRECTORY, jpg_filename);
 
     // Delete JSON before file operations
@@ -664,9 +649,9 @@ static esp_err_t display_image_handler(httpd_req_t *req)
 
     const char *filename = filename_obj->valuestring;
 
-    // Build absolute path
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "/sdcard/images/%s", filename);
+    // Build absolute path - filename can be "album/file.bmp" or just "file.bmp"
+    char filepath[512];
+    snprintf(filepath, sizeof(filepath), "%s/%s", IMAGE_DIRECTORY, filename);
 
     esp_err_t err = display_manager_show_image(filepath);
 
@@ -996,6 +981,243 @@ static esp_err_t config_handler(httpd_req_t *req)
     return ESP_FAIL;
 }
 
+static esp_err_t albums_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System not ready");
+        return ESP_OK;
+    }
+
+    if (req->method == HTTP_GET) {
+        char **albums = NULL;
+        int count = 0;
+        if (album_manager_list_albums(&albums, &count) != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to list albums");
+            return ESP_FAIL;
+        }
+
+        cJSON *response = cJSON_CreateArray();
+        for (int i = 0; i < count; i++) {
+            cJSON *album_obj = cJSON_CreateObject();
+            cJSON_AddStringToObject(album_obj, "name", albums[i]);
+            cJSON_AddBoolToObject(album_obj, "enabled", album_manager_is_album_enabled(albums[i]));
+            cJSON_AddItemToArray(response, album_obj);
+        }
+        album_manager_free_album_list(albums, count);
+
+        char *json_str = cJSON_Print(response);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_str);
+        free(json_str);
+        cJSON_Delete(response);
+        return ESP_OK;
+    } else if (req->method == HTTP_POST) {
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
+        if (ret <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to read request");
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+
+        cJSON *root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+
+        cJSON *name_json = cJSON_GetObjectItem(root, "name");
+        if (!name_json || !cJSON_IsString(name_json)) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing album name");
+            return ESP_FAIL;
+        }
+
+        const char *album_name = name_json->valuestring;
+        esp_err_t err = album_manager_create_album(album_name);
+        cJSON_Delete(root);
+
+        if (err != ESP_OK) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create album");
+            return ESP_FAIL;
+        }
+
+        cJSON *response = cJSON_CreateObject();
+        cJSON_AddStringToObject(response, "status", "success");
+        char *json_str = cJSON_Print(response);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_str);
+        free(json_str);
+        cJSON_Delete(response);
+        return ESP_OK;
+    }
+
+    httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+    return ESP_FAIL;
+}
+
+static esp_err_t album_delete_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System not ready");
+        return ESP_OK;
+    }
+
+    // Use query parameter since ESP-IDF httpd doesn't support wildcard URIs
+    char query[256];
+    char album_name[128];
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing album name");
+        return ESP_FAIL;
+    }
+
+    if (httpd_query_key_value(query, "name", album_name, sizeof(album_name)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing album name parameter");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = album_manager_delete_album(album_name);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to delete album");
+        return ESP_FAIL;
+    }
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "success");
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
+static esp_err_t album_enabled_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System not ready");
+        return ESP_OK;
+    }
+
+    // Get album name from query parameter
+    char query[256];
+    char album_name[128];
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing album name");
+        return ESP_FAIL;
+    }
+
+    if (httpd_query_key_value(query, "name", album_name, sizeof(album_name)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing album name parameter");
+        return ESP_FAIL;
+    }
+
+    // Get enabled status from JSON body
+    char buf[256];
+    int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to read request");
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON *enabled_json = cJSON_GetObjectItem(root, "enabled");
+
+    if (!enabled_json || !cJSON_IsBool(enabled_json)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing enabled field");
+        return ESP_FAIL;
+    }
+
+    bool enabled = cJSON_IsTrue(enabled_json);
+
+    esp_err_t err = album_manager_set_album_enabled(album_name, enabled);
+    cJSON_Delete(root);
+
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to update album");
+        return ESP_FAIL;
+    }
+
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "success");
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
+static esp_err_t album_images_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System not ready");
+        return ESP_OK;
+    }
+
+    char query[256];
+    char album_name[128] = "";
+
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        httpd_query_key_value(query, "album", album_name, sizeof(album_name));
+    }
+
+    if (strlen(album_name) == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing album parameter");
+        return ESP_FAIL;
+    }
+
+    char album_path[256];
+    if (album_manager_get_album_path(album_name, album_path, sizeof(album_path)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid album");
+        return ESP_FAIL;
+    }
+
+    DIR *dir = opendir(album_path);
+    if (!dir) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open album directory");
+        return ESP_FAIL;
+    }
+
+    cJSON *response = cJSON_CreateArray();
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG) {
+            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+                continue;
+            }
+            const char *ext = strrchr(entry->d_name, '.');
+            if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
+                cJSON *image_obj = cJSON_CreateObject();
+                cJSON_AddStringToObject(image_obj, "name", entry->d_name);
+                cJSON_AddStringToObject(image_obj, "album", album_name);
+                cJSON_AddItemToArray(response, image_obj);
+            }
+        }
+    }
+    closedir(dir);
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
 static esp_err_t version_handler(httpd_req_t *req)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -1019,9 +1241,10 @@ static esp_err_t version_handler(httpd_req_t *req)
 esp_err_t http_server_init(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16;
-    config.stack_size = 12288;  // Increased from 8192 to 12KB
-    // config.max_open_sockets = 4;  // Limit concurrent connections to prevent memory exhaustion
+    config.max_uri_handlers = 24;    // Increased to accommodate album management endpoints
+    config.stack_size = 12288;       // Increased from 8192 to 12KB
+    config.max_open_sockets = 10;    // Limit concurrent connections to prevent memory exhaustion
+    config.lru_purge_enable = true;  // Enable LRU purging of connections
 
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_uri_t index_uri = {
@@ -1047,12 +1270,6 @@ esp_err_t http_server_init(void)
                                    .handler = favicon_handler,
                                    .user_ctx = NULL};
         httpd_register_uri_handler(server, &favicon_uri);
-
-        httpd_uri_t list_uri = {.uri = "/api/images",
-                                .method = HTTP_GET,
-                                .handler = list_images_handler,
-                                .user_ctx = NULL};
-        httpd_register_uri_handler(server, &list_uri);
 
         httpd_uri_t upload_uri = {.uri = "/api/upload",
                                   .method = HTTP_POST,
@@ -1107,6 +1324,32 @@ esp_err_t http_server_init(void)
                                    .handler = version_handler,
                                    .user_ctx = NULL};
         httpd_register_uri_handler(server, &version_uri);
+
+        httpd_uri_t albums_get_uri = {
+            .uri = "/api/albums", .method = HTTP_GET, .handler = albums_handler, .user_ctx = NULL};
+        httpd_register_uri_handler(server, &albums_get_uri);
+
+        httpd_uri_t albums_post_uri = {
+            .uri = "/api/albums", .method = HTTP_POST, .handler = albums_handler, .user_ctx = NULL};
+        httpd_register_uri_handler(server, &albums_post_uri);
+
+        httpd_uri_t album_delete_uri = {.uri = "/api/albums",
+                                        .method = HTTP_DELETE,
+                                        .handler = album_delete_handler,
+                                        .user_ctx = NULL};
+        httpd_register_uri_handler(server, &album_delete_uri);
+
+        httpd_uri_t album_enabled_uri = {.uri = "/api/albums/enabled",
+                                         .method = HTTP_PUT,
+                                         .handler = album_enabled_handler,
+                                         .user_ctx = NULL};
+        httpd_register_uri_handler(server, &album_enabled_uri);
+
+        httpd_uri_t images_uri = {.uri = "/api/images",
+                                  .method = HTTP_GET,
+                                  .handler = album_images_handler,
+                                  .user_ctx = NULL};
+        httpd_register_uri_handler(server, &images_uri);
 
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;

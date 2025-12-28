@@ -6,6 +6,7 @@
 
 #include "GUI_BMPfile.h"
 #include "GUI_Paint.h"
+#include "album_manager.h"
 #include "config.h"
 #include "epaper_port.h"
 #include "esp_heap_caps.h"
@@ -210,69 +211,116 @@ void display_manager_handle_wakeup(void)
 
     ESP_LOGI(TAG, "Handling wakeup for auto-rotate");
 
-    DIR *dir = opendir(IMAGE_DIRECTORY);
-    if (!dir) {
-        ESP_LOGE(TAG, "Failed to open image directory");
+    // Get enabled albums
+    char **enabled_albums = NULL;
+    int album_count = 0;
+    if (album_manager_get_enabled_albums(&enabled_albums, &album_count) != ESP_OK ||
+        album_count == 0) {
+        ESP_LOGW(TAG, "No enabled albums for auto-rotate");
         return;
     }
 
-    // Count BMP images
-    struct dirent *entry;
-    int image_count = 0;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {
-            // Skip macOS resource fork files (._*)
-            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
-                continue;
-            }
+    ESP_LOGI(TAG, "Collecting images from %d enabled album(s)", album_count);
 
-            const char *ext = strrchr(entry->d_name, '.');
-            if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
-                image_count++;
-            }
+    // Check for stale albums (removed from SD card) and disable them
+    bool found_stale_albums = false;
+    for (int i = 0; i < album_count; i++) {
+        if (!album_manager_album_exists(enabled_albums[i])) {
+            ESP_LOGW(TAG, "Album '%s' no longer exists on SD card, disabling it",
+                     enabled_albums[i]);
+            album_manager_set_album_enabled(enabled_albums[i], false);
+            found_stale_albums = true;
         }
     }
 
-    if (image_count == 0) {
-        ESP_LOGW(TAG, "No images found for auto-rotate");
+    // If we found stale albums, reload the enabled list
+    if (found_stale_albums) {
+        album_manager_free_album_list(enabled_albums, album_count);
+        if (album_manager_get_enabled_albums(&enabled_albums, &album_count) != ESP_OK ||
+            album_count == 0) {
+            ESP_LOGW(TAG, "No enabled albums remaining after cleanup");
+            return;
+        }
+        ESP_LOGI(TAG, "After cleanup: %d enabled album(s)", album_count);
+    }
+
+    // Count total images across all enabled albums
+    int total_image_count = 0;
+    for (int i = 0; i < album_count; i++) {
+        char album_path[256];
+        album_manager_get_album_path(enabled_albums[i], album_path, sizeof(album_path));
+
+        DIR *dir = opendir(album_path);
+        if (!dir) {
+            ESP_LOGW(TAG, "Failed to open album: %s", enabled_albums[i]);
+            continue;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (entry->d_type == DT_REG) {
+                if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+                    continue;
+                }
+                const char *ext = strrchr(entry->d_name, '.');
+                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
+                    total_image_count++;
+                }
+            }
+        }
         closedir(dir);
+    }
+
+    if (total_image_count == 0) {
+        ESP_LOGW(TAG, "No images found in enabled albums");
+        album_manager_free_album_list(enabled_albums, album_count);
         return;
     }
 
-    // Build image list with absolute paths
-    char **image_list = malloc(image_count * sizeof(char *));
-    rewinddir(dir);
+    // Build image list with absolute paths from all enabled albums
+    char **image_list = malloc(total_image_count * sizeof(char *));
     int idx = 0;
-    while ((entry = readdir(dir)) != NULL && idx < image_count) {
-        if (entry->d_type == DT_REG) {
-            // Skip macOS resource fork files (._*)
-            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
-                continue;
-            }
 
-            const char *ext = strrchr(entry->d_name, '.');
-            if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
-                // Build absolute path (IMAGE_DIRECTORY is 14 chars + "/" + 255 max filename + null
-                // = 271)
-                char *fullpath = malloc(512);
-                snprintf(fullpath, 512, "%s/%s", IMAGE_DIRECTORY, entry->d_name);
-                image_list[idx] = fullpath;
-                idx++;
+    for (int i = 0; i < album_count; i++) {
+        char album_path[256];
+        album_manager_get_album_path(enabled_albums[i], album_path, sizeof(album_path));
+
+        DIR *dir = opendir(album_path);
+        if (!dir) {
+            continue;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL && idx < total_image_count) {
+            if (entry->d_type == DT_REG) {
+                if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+                    continue;
+                }
+
+                const char *ext = strrchr(entry->d_name, '.');
+                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
+                    char *fullpath = malloc(512);
+                    snprintf(fullpath, 512, "%s/%s", album_path, entry->d_name);
+                    image_list[idx] = fullpath;
+                    idx++;
+                }
             }
         }
+        closedir(dir);
     }
-    closedir(dir);
+
+    album_manager_free_album_list(enabled_albums, album_count);
 
     // Select random image
-    int random_index = esp_random() % image_count;
+    int random_index = esp_random() % total_image_count;
 
     // Display random image
-    ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1, image_count,
-             image_list[random_index]);
+    ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
+             total_image_count, image_list[random_index]);
     display_manager_show_image(image_list[random_index]);
 
     // Free image list
-    for (int i = 0; i < image_count; i++) {
+    for (int i = 0; i < total_image_count; i++) {
         free(image_list[i]);
     }
     free(image_list);

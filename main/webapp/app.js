@@ -4,6 +4,8 @@ const API_BASE = '';
 
 let currentImages = [];
 let selectedImage = null;
+let currentAlbums = [];
+let selectedAlbum = 'Default';
 
 async function loadBatteryStatus() {
     try {
@@ -49,31 +51,217 @@ async function loadBatteryStatus() {
     }
 }
 
-async function loadImages() {
+async function loadAlbums() {
     try {
-        const response = await fetch(`${API_BASE}/api/images`);
+        const response = await fetch(`${API_BASE}/api/albums`);
         if (!response.ok || response.headers.get('content-type')?.includes('text/html')) {
-            // Running in standalone mode without ESP32 backend
-            console.log('Images API not available (standalone mode)');
+            console.log('Albums API not available (standalone mode)');
             return;
         }
-        const data = await response.json();
-        currentImages = data.images || [];
+        currentAlbums = await response.json();
+        displayAlbums();
+    } catch (error) {
+        console.log('Failed to load albums:', error);
+    }
+}
+
+function displayAlbums() {
+    const albumList = document.getElementById('albumList');
+    if (!albumList) return;
+    
+    albumList.innerHTML = '';
+    
+    // Sort albums: Default first, then alphabetically
+    const sortedAlbums = [...currentAlbums].sort((a, b) => {
+        if (a.name === 'Default') return -1;
+        if (b.name === 'Default') return 1;
+        return a.name.localeCompare(b.name);
+    });
+    
+    // Update upload album selector
+    const uploadAlbumSelect = document.getElementById('uploadAlbumSelect');
+    if (uploadAlbumSelect) {
+        uploadAlbumSelect.innerHTML = '';
+        sortedAlbums.forEach(album => {
+            const option = document.createElement('option');
+            option.value = album.name;
+            option.textContent = album.name;
+            if (album.name === selectedAlbum) {
+                option.selected = true;
+            }
+            uploadAlbumSelect.appendChild(option);
+        });
+    }
+    
+    sortedAlbums.forEach(album => {
+        const item = document.createElement('div');
+        item.className = 'album-item';
+        if (album.name === selectedAlbum) {
+            item.classList.add('selected');
+        }
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = album.enabled;
+        checkbox.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+        checkbox.addEventListener('change', (e) => {
+            toggleAlbumEnabled(album.name, e.target.checked);
+        });
+        
+        const name = document.createElement('span');
+        name.textContent = album.name;
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '×';
+        deleteBtn.title = 'Delete album';
+        if (album.name === 'Default') {
+            deleteBtn.disabled = true;
+            deleteBtn.style.visibility = 'hidden';
+        }
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteAlbum(album.name);
+        });
+        
+        item.appendChild(checkbox);
+        item.appendChild(name);
+        item.appendChild(deleteBtn);
+        item.addEventListener('click', () => selectAlbum(album.name));
+        
+        albumList.appendChild(item);
+    });
+}
+
+function selectAlbum(albumName) {
+    selectedAlbum = albumName;
+    displayAlbums();
+    loadImagesForAlbum(albumName);
+    
+    // Update album name display
+    const albumNameElement = document.getElementById('currentAlbumName');
+    if (albumNameElement) {
+        albumNameElement.textContent = `${albumName}`;
+    }
+    
+    // Update upload album selector
+    const uploadAlbumSelect = document.getElementById('uploadAlbumSelect');
+    if (uploadAlbumSelect) {
+        uploadAlbumSelect.value = albumName;
+    }
+}
+
+async function loadImagesForAlbum(albumName) {
+    try {
+        const response = await fetch(`${API_BASE}/api/images?album=${encodeURIComponent(albumName)}`);
+        if (!response.ok) {
+            console.log('Failed to load images for album');
+            return;
+        }
+        currentImages = await response.json();
         displayImages();
     } catch (error) {
-        console.log('Failed to load images (firmware may be busy):', error);
+        console.log('Failed to load images:', error);
     }
+}
+
+async function toggleAlbumEnabled(albumName, enabled) {
+    try {
+        const response = await fetch(`${API_BASE}/api/albums/enabled?name=${encodeURIComponent(albumName)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        if (response.ok) {
+            console.log(`Album ${albumName} ${enabled ? 'enabled' : 'disabled'}`);
+            loadAlbums();
+        }
+    } catch (error) {
+        console.error('Failed to toggle album:', error);
+    }
+}
+
+async function createAlbum() {
+    const name = prompt('Enter album name:');
+    if (!name || name.trim() === '') return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/albums`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim() })
+        });
+        if (response.ok) {
+            console.log('Album created:', name);
+            loadAlbums();
+        } else {
+            alert('Failed to create album');
+        }
+    } catch (error) {
+        console.error('Failed to create album:', error);
+    }
+}
+
+async function deleteAlbum(albumName) {
+    if (albumName === 'Default') {
+        alert('Cannot delete Default album');
+        return;
+    }
+    if (!confirm(`Delete album "${albumName}" and all its images?`)) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/albums?name=${encodeURIComponent(albumName)}`, {
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            console.log('Album deleted:', albumName);
+            if (selectedAlbum === albumName) {
+                selectedAlbum = 'Default';
+            }
+            loadAlbums();
+            loadImagesForAlbum(selectedAlbum);
+        } else {
+            alert('Failed to delete album');
+        }
+    } catch (error) {
+        console.error('Failed to delete album:', error);
+    }
+}
+
+async function loadImages() {
+    loadImagesForAlbum(selectedAlbum);
 }
 
 function displayImages() {
     const imageList = document.getElementById('imageList');
     
+    imageList.innerHTML = '';
+    
+    // Add upload button as first item
+    const uploadItem = document.createElement('div');
+    uploadItem.className = 'image-item upload-item';
+    uploadItem.innerHTML = `
+        <div class="upload-placeholder">
+            <div class="upload-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+            </div>
+            <div class="upload-text">Upload Image</div>
+        </div>
+    `;
+    uploadItem.addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+    });
+    imageList.appendChild(uploadItem);
+    
     if (currentImages.length === 0) {
-        imageList.innerHTML = '<p class="loading">No images found. Upload some images to get started!</p>';
         return;
     }
-    
-    imageList.innerHTML = '';
     
     currentImages.forEach(image => {
         const item = document.createElement('div');
@@ -83,7 +271,9 @@ function displayImages() {
         thumbnail.className = 'image-thumbnail';
         // Convert .bmp to .jpg for thumbnail
         const thumbnailName = image.name.replace(/\.bmp$/i, '.jpg');
-        thumbnail.src = `${API_BASE}/api/image?name=${encodeURIComponent(thumbnailName)}`;
+        // Use album/filename format
+        const thumbnailPath = `${selectedAlbum}/${thumbnailName}`;
+        thumbnail.src = `${API_BASE}/api/image?name=${encodeURIComponent(thumbnailPath)}`;
         thumbnail.alt = image.name;
         thumbnail.loading = 'lazy';
         
@@ -94,12 +284,7 @@ function displayImages() {
         name.className = 'image-name';
         name.textContent = image.name;
         
-        const size = document.createElement('div');
-        size.className = 'image-size';
-        size.textContent = formatFileSize(image.size);
-        
         info.appendChild(name);
-        info.appendChild(size);
         
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';
@@ -132,12 +317,14 @@ async function deleteImage(filename) {
     }
     
     try {
+        // Use album/filename format
+        const fullPath = `${selectedAlbum}/${filename}`;
         const response = await fetch(`${API_BASE}/api/delete`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ filename })
+            body: JSON.stringify({ filename: fullPath })
         });
         
         const data = await response.json();
@@ -182,12 +369,14 @@ async function selectImage(filename, element) {
     displayStatus.style.display = 'block';
     
     try {
+        // Use album/filename format
+        const fullPath = `${selectedAlbum}/${filename}`;
         const response = await fetch(`${API_BASE}/api/display`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ filename })
+            body: JSON.stringify({ filename: fullPath })
         });
         
         const data = await response.json();
@@ -231,14 +420,11 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
-    const fileName = file.name;
-    document.getElementById('fileName').textContent = `Selected: ${fileName}`;
-    
     // Store the file and show preview
     currentImageFile = file;
     
-    // Hide upload area, show preview area
-    document.getElementById('uploadArea').style.display = 'none';
+    // Show image processing section and preview area
+    document.getElementById('imageProcessingSection').style.display = 'block';
     document.getElementById('previewArea').style.display = 'block';
     
     // Ensure controls and buttons are visible (in case they were hidden from previous upload)
@@ -247,54 +433,6 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
     document.getElementById('uploadProgress').style.display = 'none';
     
     await loadImagePreview(file);
-});
-
-// Drag and drop support
-const uploadArea = document.querySelector('.upload-area');
-
-uploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    uploadArea.classList.add('drag-over');
-});
-
-uploadArea.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    uploadArea.classList.remove('drag-over');
-});
-
-uploadArea.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    uploadArea.classList.remove('drag-over');
-    
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        const file = files[0];
-        // Check if it's a JPEG file
-        if (file.type === 'image/jpeg' || file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg')) {
-            const fileInput = document.getElementById('fileInput');
-            fileInput.files = files;
-            document.getElementById('fileName').textContent = `Selected: ${file.name}`;
-            
-            // Store the file and show preview
-            currentImageFile = file;
-            
-            // Hide upload area, show preview area
-            document.getElementById('uploadArea').style.display = 'none';
-            document.getElementById('previewArea').style.display = 'block';
-            
-            // Ensure controls and buttons are visible
-            document.querySelector('.button-group').style.display = 'flex';
-            document.querySelector('.controls-grid').style.display = 'grid';
-            document.getElementById('uploadProgress').style.display = 'none';
-            
-            await loadImagePreview(file);
-        } else {
-            alert('Please drop a JPG/JPEG image file');
-        }
-    }
 });
 
 async function resizeImage(file, maxWidth, maxHeight, quality) {
@@ -858,9 +996,11 @@ document.getElementById('uploadProcessed').addEventListener('click', async () =>
         const thumbnailBlob = await resizeImage(currentImageFile, 200, 120, 0.85);
         
         const formData = new FormData();
+        // Send text fields first so backend can parse them before processing files
+        formData.append('album', selectedAlbum);
+        formData.append('processingMode', currentParams.processingMode);
         formData.append('image', imageBlob, currentImageFile.name);
         formData.append('thumbnail', thumbnailBlob, 'thumb_' + currentImageFile.name);
-        formData.append('processingMode', currentParams.processingMode);
         
         const response = await fetch(`${API_BASE}/api/upload`, {
             method: 'POST',
@@ -871,16 +1011,15 @@ document.getElementById('uploadProcessed').addEventListener('click', async () =>
         
         if (data.status === 'success') {
             uploadSucceeded = true;
-            statusDiv.className = 'status-success';
-            statusDiv.textContent = `Successfully uploaded: ${data.filename}`;
             
-            // Reset state and show upload area again
+            // Reset state
             currentImageFile = null;
             currentImageCanvas = null;
             originalImageData = null;
             document.getElementById('fileInput').value = '';
-            document.getElementById('fileName').textContent = '';
-            document.getElementById('uploadArea').style.display = 'block';
+            
+            // Hide processing section
+            document.getElementById('imageProcessingSection').style.display = 'none';
             document.getElementById('previewArea').style.display = 'none';
             uploadProgress.style.display = 'none';
             
@@ -1028,6 +1167,7 @@ document.addEventListener('visibilitychange', () => {
     } else {
         console.log('Page visible - starting periodic updates');
         // Refresh data immediately when page becomes visible
+        loadAlbums();
         loadImages();
         loadBatteryStatus();
         startPeriodicUpdates();
@@ -1039,7 +1179,63 @@ if (!document.hidden) {
     startPeriodicUpdates();
 }
 // Initial load
+loadAlbums();
 loadImages();
 loadConfig();
 loadVersion();
+
+// Expose createAlbum to global scope for button onclick
+window.createAlbum = createAlbum;
 loadBatteryStatus();
+
+// Setup drag & drop for gallery area
+function setupDragAndDrop() {
+    const imageList = document.getElementById('imageList');
+    if (!imageList) return;
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        imageList.addEventListener(eventName, preventDefaults, false);
+    });
+    
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+        imageList.addEventListener(eventName, () => {
+            imageList.classList.add('drag-over');
+        }, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        imageList.addEventListener(eventName, () => {
+            imageList.classList.remove('drag-over');
+        }, false);
+    });
+    
+    imageList.addEventListener('drop', handleDrop, false);
+    
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        
+        if (files.length > 0) {
+            const file = files[0];
+            if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+                const fileInput = document.getElementById('fileInput');
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
+                
+                // Trigger file input change event
+                const event = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(event);
+            } else {
+                alert('Please upload a JPG/JPEG image');
+            }
+        }
+    }
+}
+
+setupDragAndDrop();
