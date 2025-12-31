@@ -1584,16 +1584,16 @@ static esp_err_t color_palette_handler(httpd_req_t *req)
         // Reset palette to defaults
         color_palette_t palette;
         color_palette_get_defaults(&palette);
-        
+
         esp_err_t err = color_palette_save(&palette);
         if (err != ESP_OK) {
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
-        
+
         // Reload palette in image processor
         image_processor_reload_palette();
-        
+
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"success\":true}");
         return ESP_OK;
