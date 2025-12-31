@@ -20,6 +20,7 @@
 #include "mdns_service.h"
 #include "nvs_flash.h"
 #include "power_manager.h"
+#include "processing_settings.h"
 #include "sdmmc_cmd.h"
 #include "wifi_manager.h"
 #include "wifi_provisioning.h"
@@ -203,6 +204,8 @@ void app_main(void)
     ESP_ERROR_CHECK(image_processor_init());
 
     ESP_ERROR_CHECK(display_manager_init());
+
+    ESP_ERROR_CHECK(processing_settings_init());
 
     // Initialize power manager early to detect wakeup cause
     ESP_ERROR_CHECK(power_manager_init());

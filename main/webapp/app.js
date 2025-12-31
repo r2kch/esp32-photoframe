@@ -17,6 +17,10 @@ const DEFAULT_PARAMS = {
     processingMode: 'enhanced'
 };
 
+// Debounced save timer (10 seconds)
+let settingsSaveTimer = null;
+const SETTINGS_SAVE_DELAY = 10000; // 10 seconds
+
 let currentImages = [];
 let selectedImage = null;
 let currentAlbums = [];
@@ -770,42 +774,49 @@ document.getElementById('exposure').addEventListener('input', (e) => {
     currentParams.exposure = parseFloat(e.target.value);
     document.getElementById('exposureValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 document.getElementById('saturation').addEventListener('input', (e) => {
     currentParams.saturation = parseFloat(e.target.value);
     document.getElementById('saturationValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 document.getElementById('contrast').addEventListener('input', (e) => {
     currentParams.contrast = parseFloat(e.target.value);
     document.getElementById('contrastValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 document.getElementById('scurveStrength').addEventListener('input', (e) => {
     currentParams.strength = parseFloat(e.target.value);
     document.getElementById('strengthValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 document.getElementById('scurveShadow').addEventListener('input', (e) => {
     currentParams.shadowBoost = parseFloat(e.target.value);
     document.getElementById('shadowValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 document.getElementById('scurveHighlight').addEventListener('input', (e) => {
     currentParams.highlightCompress = parseFloat(e.target.value);
     document.getElementById('highlightValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 document.getElementById('scurveMidpoint').addEventListener('input', (e) => {
     currentParams.midpoint = parseFloat(e.target.value);
     document.getElementById('midpointValue').textContent = e.target.value;
     updatePreview();
+    scheduleSaveSettings();
 });
 
 // Color matching method radio buttons
@@ -813,6 +824,7 @@ document.querySelectorAll('input[name="colorMethod"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         currentParams.colorMethod = e.target.value;
         updatePreview();
+        scheduleSaveSettings();
     });
 });
 
@@ -834,6 +846,7 @@ document.querySelectorAll('input[name="toneMode"]').forEach(radio => {
         }
         
         updatePreview();
+        scheduleSaveSettings();
     });
 });
 
@@ -846,6 +859,7 @@ document.querySelectorAll('input[name="processingMode"]').forEach(radio => {
         const enhancedControls = document.getElementById('enhancedControls');
         const colorMethodControl = document.getElementById('colorMethodControl');
         const curveCanvasWrapper = document.querySelector('.curve-canvas-wrapper');
+        
         if (e.target.value === 'stock') {
             enhancedControls.style.display = 'none';
             colorMethodControl.style.display = 'none';
@@ -860,6 +874,7 @@ document.querySelectorAll('input[name="processingMode"]').forEach(radio => {
         }
         
         updatePreview();
+        scheduleSaveSettings();
     });
 });
 
@@ -1229,7 +1244,94 @@ function setupDragAndDrop() {
     }
 }
 
-// Initialize form controls with default values on page load
+// Save settings to backend with debouncing
+function scheduleSaveSettings() {
+    if (settingsSaveTimer) {
+        clearTimeout(settingsSaveTimer);
+    }
+    
+    settingsSaveTimer = setTimeout(async () => {
+        try {
+            const response = await fetch(`${API_BASE}/api/settings/processing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentParams)
+            });
+            
+            if (response.ok) {
+                console.log('Settings saved to device');
+            } else {
+                console.error('Failed to save settings');
+            }
+        } catch (error) {
+            console.error('Error saving settings:', error);
+        }
+    }, SETTINGS_SAVE_DELAY);
+}
+
+// Load persisted settings from backend
+async function loadPersistedSettings() {
+    try {
+        const response = await fetch(`${API_BASE}/api/settings/processing`);
+        if (response.ok) {
+            const settings = await response.json();
+            
+            // Update currentParams with persisted values
+            currentParams = { ...settings };
+            
+            // Update UI to reflect loaded settings
+            document.getElementById('exposure').value = settings.exposure;
+            document.getElementById('exposureValue').textContent = settings.exposure.toFixed(1);
+            document.getElementById('saturation').value = settings.saturation;
+            document.getElementById('saturationValue').textContent = settings.saturation.toFixed(1);
+            document.getElementById('contrast').value = settings.contrast;
+            document.getElementById('contrastValue').textContent = settings.contrast.toFixed(1);
+            document.getElementById('scurveStrength').value = settings.strength;
+            document.getElementById('strengthValue').textContent = settings.strength.toFixed(1);
+            document.getElementById('scurveShadow').value = settings.shadowBoost;
+            document.getElementById('shadowValue').textContent = settings.shadowBoost.toFixed(1);
+            document.getElementById('scurveHighlight').value = settings.highlightCompress;
+            document.getElementById('highlightValue').textContent = settings.highlightCompress.toFixed(1);
+            document.getElementById('scurveMidpoint').value = settings.midpoint;
+            document.getElementById('midpointValue').textContent = settings.midpoint.toFixed(1);
+            document.querySelector(`input[name="colorMethod"][value="${settings.colorMethod}"]`).checked = true;
+            document.querySelector(`input[name="toneMode"][value="${settings.toneMode}"]`).checked = true;
+            document.querySelector(`input[name="processingMode"][value="${settings.processingMode}"]`).checked = true;
+            
+            // Update UI visibility based on loaded settings
+            const enhancedControls = document.getElementById('enhancedControls');
+            const colorMethodControl = document.getElementById('colorMethodControl');
+            const contrastControl = document.getElementById('contrastControl');
+            const curveCanvasWrapper = document.querySelector('.curve-canvas-wrapper');
+            
+            if (settings.processingMode === 'stock') {
+                enhancedControls.style.display = 'none';
+                colorMethodControl.style.display = 'none';
+                curveCanvasWrapper.style.display = 'none';
+            } else {
+                enhancedControls.style.display = 'grid';
+                colorMethodControl.style.display = 'block';
+                if (settings.toneMode === 'scurve') {
+                    contrastControl.style.display = 'none';
+                    curveCanvasWrapper.style.display = 'flex';
+                } else {
+                    contrastControl.style.display = 'block';
+                    curveCanvasWrapper.style.display = 'none';
+                }
+            }
+            
+            console.log('Loaded persisted settings from device');
+        } else {
+            console.log('No persisted settings found, using defaults');
+            initializeFormDefaults();
+        }
+    } catch (error) {
+        console.error('Error loading settings:', error);
+        initializeFormDefaults();
+    }
+}
+
+// Initialize form controls with default values
 function initializeFormDefaults() {
     document.getElementById('exposure').value = DEFAULT_PARAMS.exposure;
     document.getElementById('exposureValue').textContent = DEFAULT_PARAMS.exposure;
@@ -1251,4 +1353,4 @@ function initializeFormDefaults() {
 }
 
 setupDragAndDrop();
-initializeFormDefaults();
+loadPersistedSettings();

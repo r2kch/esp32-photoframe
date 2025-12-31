@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "image_processor.h"
 #include "power_manager.h"
+#include "processing_settings.h"
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -1238,6 +1239,114 @@ static esp_err_t version_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t processing_settings_handler(httpd_req_t *req)
+{
+    if (req->method == HTTP_GET) {
+        processing_settings_t settings;
+        if (processing_settings_load(&settings) != ESP_OK) {
+            processing_settings_get_defaults(&settings);
+        }
+
+        cJSON *response = cJSON_CreateObject();
+        cJSON_AddNumberToObject(response, "exposure", settings.exposure);
+        cJSON_AddNumberToObject(response, "saturation", settings.saturation);
+        cJSON_AddStringToObject(response, "toneMode", settings.tone_mode);
+        cJSON_AddNumberToObject(response, "contrast", settings.contrast);
+        cJSON_AddNumberToObject(response, "strength", settings.strength);
+        cJSON_AddNumberToObject(response, "shadowBoost", settings.shadow_boost);
+        cJSON_AddNumberToObject(response, "highlightCompress", settings.highlight_compress);
+        cJSON_AddNumberToObject(response, "midpoint", settings.midpoint);
+        cJSON_AddStringToObject(response, "colorMethod", settings.color_method);
+        cJSON_AddBoolToObject(response, "renderMeasured", settings.render_measured);
+        cJSON_AddStringToObject(response, "processingMode", settings.processing_mode);
+
+        char *json_str = cJSON_Print(response);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_str);
+
+        free(json_str);
+        cJSON_Delete(response);
+        return ESP_OK;
+
+    } else if (req->method == HTTP_POST) {
+        char *buf = malloc(req->content_len + 1);
+        if (!buf) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+
+        int ret = httpd_req_recv(req, buf, req->content_len);
+        if (ret <= 0) {
+            free(buf);
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        buf[ret] = '\0';
+
+        cJSON *json = cJSON_Parse(buf);
+        free(buf);
+
+        if (!json) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+
+        processing_settings_t settings;
+        processing_settings_get_defaults(&settings);
+
+        cJSON *item;
+        if ((item = cJSON_GetObjectItem(json, "exposure")) && cJSON_IsNumber(item)) {
+            settings.exposure = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "saturation")) && cJSON_IsNumber(item)) {
+            settings.saturation = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "toneMode")) && cJSON_IsString(item)) {
+            strncpy(settings.tone_mode, item->valuestring, sizeof(settings.tone_mode) - 1);
+        }
+        if ((item = cJSON_GetObjectItem(json, "contrast")) && cJSON_IsNumber(item)) {
+            settings.contrast = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "strength")) && cJSON_IsNumber(item)) {
+            settings.strength = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "shadowBoost")) && cJSON_IsNumber(item)) {
+            settings.shadow_boost = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "highlightCompress")) && cJSON_IsNumber(item)) {
+            settings.highlight_compress = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "midpoint")) && cJSON_IsNumber(item)) {
+            settings.midpoint = (float) item->valuedouble;
+        }
+        if ((item = cJSON_GetObjectItem(json, "colorMethod")) && cJSON_IsString(item)) {
+            strncpy(settings.color_method, item->valuestring, sizeof(settings.color_method) - 1);
+        }
+        if ((item = cJSON_GetObjectItem(json, "renderMeasured")) && cJSON_IsBool(item)) {
+            settings.render_measured = cJSON_IsTrue(item);
+        }
+        if ((item = cJSON_GetObjectItem(json, "processingMode")) && cJSON_IsString(item)) {
+            strncpy(settings.processing_mode, item->valuestring,
+                    sizeof(settings.processing_mode) - 1);
+        }
+
+        cJSON_Delete(json);
+
+        esp_err_t err = processing_settings_save(&settings);
+        if (err != ESP_OK) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"success\":true}");
+        return ESP_OK;
+    }
+
+    httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+    return ESP_FAIL;
+}
+
 esp_err_t http_server_init(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -1350,6 +1459,18 @@ esp_err_t http_server_init(void)
                                   .handler = album_images_handler,
                                   .user_ctx = NULL};
         httpd_register_uri_handler(server, &images_uri);
+
+        httpd_uri_t processing_settings_get_uri = {.uri = "/api/settings/processing",
+                                                   .method = HTTP_GET,
+                                                   .handler = processing_settings_handler,
+                                                   .user_ctx = NULL};
+        httpd_register_uri_handler(server, &processing_settings_get_uri);
+
+        httpd_uri_t processing_settings_post_uri = {.uri = "/api/settings/processing",
+                                                    .method = HTTP_POST,
+                                                    .handler = processing_settings_handler,
+                                                    .user_ctx = NULL};
+        httpd_register_uri_handler(server, &processing_settings_post_uri);
 
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;

@@ -1,14 +1,15 @@
 set(SOURCES 
-    "main.c"
-    "wifi_manager.c"
-    "wifi_provisioning.c"
+    "album_manager.c"
+    "display_manager.c"
     "dns_server.c"
     "http_server.c"
     "image_processor.c"
-    "display_manager.c"
-    "power_manager.c"
+    "main.c"
     "mdns_service.c"
-    "album_manager.c"
+    "power_manager.c"
+    "processing_settings.c"
+    "wifi_manager.c"
+    "wifi_provisioning.c"
 )
 
 set(INCLUDE_DIRS ".")
