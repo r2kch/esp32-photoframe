@@ -238,8 +238,11 @@ Use the Node.js CLI tool to process images offline with the same pipeline as the
 cd process-cli
 npm install
 
-# Process image with default settings
-node cli.js input.jpg -o /path/to/sdcard/images/
+# Process single image with device settings (recommended)
+node cli.js input.jpg --device-parameters -o /path/to/sdcard/images/
+
+# Process entire album directory structure
+node cli.js ~/Photos/Albums --device-parameters -o /path/to/sdcard/images/
 
 # Custom S-curve and saturation
 node cli.js input.jpg --scurve-strength 0.8 --saturation 1.5 -o output/
@@ -247,6 +250,12 @@ node cli.js input.jpg --scurve-strength 0.8 --saturation 1.5 -o output/
 # Preview mode (render with measured palette)
 node cli.js input.jpg --render-measured -o preview/
 ```
+
+**Features:**
+- **Automatic detection**: Processes single files or entire folder structures
+- **Device parameters**: Fetch settings and calibrated palette from your device
+- **Batch processing**: Automatically processes album subdirectories
+- **Dual output**: BMP for display + JPEG thumbnail for web interface
 
 **Output:**
 - `photo.bmp` - Processed image for e-paper display (theoretical palette)

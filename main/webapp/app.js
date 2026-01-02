@@ -8,21 +8,6 @@ import {
 
 const API_BASE = "";
 
-// Centralized default configuration for image processing
-const DEFAULT_PARAMS = {
-  exposure: 1.0,
-  saturation: 1.3,
-  toneMode: "scurve",
-  contrast: 1.0,
-  strength: 0.9,
-  shadowBoost: 0.0,
-  highlightCompress: 1.5,
-  midpoint: 0.5,
-  colorMethod: "rgb",
-  renderMeasured: true,
-  processingMode: "enhanced",
-};
-
 // Debounced save timer (10 seconds)
 let settingsSaveTimer = null;
 const SETTINGS_SAVE_DELAY = 10000; // 10 seconds
@@ -444,7 +429,7 @@ async function selectImage(filename, element) {
 let currentImageFile = null;
 let currentImageCanvas = null;
 let originalImageData = null; // Store original unprocessed image data
-let currentParams = { ...DEFAULT_PARAMS };
+let currentParams = {};
 
 document.getElementById("fileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
@@ -952,48 +937,82 @@ document.getElementById("discardImage").addEventListener("click", () => {
   document.getElementById("uploadStatus").className = "";
 });
 
-// Reset to defaults
-document.getElementById("resetParams").addEventListener("click", () => {
-  currentParams = { ...DEFAULT_PARAMS };
+// Reset to defaults - fetch from firmware backend
+document.getElementById("resetParams").addEventListener("click", async () => {
+  try {
+    // Fetch firmware defaults
+    const response = await fetch(`${API_BASE}/api/settings/processing`);
+    if (response.ok) {
+      const defaults = await response.json();
 
-  document.getElementById("exposure").value = DEFAULT_PARAMS.exposure;
-  document.getElementById("exposureValue").textContent =
-    DEFAULT_PARAMS.exposure;
-  document.getElementById("saturation").value = DEFAULT_PARAMS.saturation;
-  document.getElementById("saturationValue").textContent =
-    DEFAULT_PARAMS.saturation;
-  document.getElementById("contrast").value = DEFAULT_PARAMS.contrast;
-  document.getElementById("contrastValue").textContent =
-    DEFAULT_PARAMS.contrast;
-  document.getElementById("scurveStrength").value = DEFAULT_PARAMS.strength;
-  document.getElementById("strengthValue").textContent =
-    DEFAULT_PARAMS.strength;
-  document.getElementById("scurveShadow").value = DEFAULT_PARAMS.shadowBoost;
-  document.getElementById("shadowValue").textContent =
-    DEFAULT_PARAMS.shadowBoost;
-  document.getElementById("scurveHighlight").value =
-    DEFAULT_PARAMS.highlightCompress;
-  document.getElementById("highlightValue").textContent =
-    DEFAULT_PARAMS.highlightCompress;
-  document.getElementById("scurveMidpoint").value = DEFAULT_PARAMS.midpoint;
-  document.getElementById("midpointValue").textContent =
-    DEFAULT_PARAMS.midpoint;
-  document.querySelector(
-    `input[name="colorMethod"][value="${DEFAULT_PARAMS.colorMethod}"]`,
-  ).checked = true;
-  document.querySelector(
-    `input[name="toneMode"][value="${DEFAULT_PARAMS.toneMode}"]`,
-  ).checked = true;
-  document.querySelector(
-    `input[name="processingMode"][value="${DEFAULT_PARAMS.processingMode}"]`,
-  ).checked = true;
-  document.getElementById("enhancedControls").style.display = "grid";
-  document.getElementById("colorMethodControl").style.display = "block";
-  document.getElementById("contrastControl").style.display = "none";
-  document.querySelector(".curve-canvas-wrapper").style.display = "flex";
+      // Update currentParams
+      currentParams = { ...defaults };
 
-  updatePreview();
-  scheduleSaveSettings();
+      // Update UI
+      document.getElementById("exposure").value = defaults.exposure;
+      document.getElementById("exposureValue").textContent =
+        defaults.exposure.toFixed(1);
+      document.getElementById("saturation").value = defaults.saturation;
+      document.getElementById("saturationValue").textContent =
+        defaults.saturation.toFixed(1);
+      document.getElementById("contrast").value = defaults.contrast;
+      document.getElementById("contrastValue").textContent =
+        defaults.contrast.toFixed(1);
+      document.getElementById("scurveStrength").value = defaults.strength;
+      document.getElementById("strengthValue").textContent =
+        defaults.strength.toFixed(1);
+      document.getElementById("scurveShadow").value = defaults.shadowBoost;
+      document.getElementById("shadowValue").textContent =
+        defaults.shadowBoost.toFixed(1);
+      document.getElementById("scurveHighlight").value =
+        defaults.highlightCompress;
+      document.getElementById("highlightValue").textContent =
+        defaults.highlightCompress.toFixed(1);
+      document.getElementById("scurveMidpoint").value = defaults.midpoint;
+      document.getElementById("midpointValue").textContent =
+        defaults.midpoint.toFixed(1);
+      document.querySelector(
+        `input[name="colorMethod"][value="${defaults.colorMethod}"]`,
+      ).checked = true;
+      document.querySelector(
+        `input[name="toneMode"][value="${defaults.toneMode}"]`,
+      ).checked = true;
+      document.querySelector(
+        `input[name="processingMode"][value="${defaults.processingMode}"]`,
+      ).checked = true;
+
+      // Update UI visibility
+      const enhancedControls = document.getElementById("enhancedControls");
+      const colorMethodControl = document.getElementById("colorMethodControl");
+      const contrastControl = document.getElementById("contrastControl");
+      const curveCanvasWrapper = document.querySelector(
+        ".curve-canvas-wrapper",
+      );
+
+      if (defaults.processingMode === "stock") {
+        enhancedControls.style.display = "none";
+        colorMethodControl.style.display = "none";
+        curveCanvasWrapper.style.display = "none";
+      } else {
+        enhancedControls.style.display = "grid";
+        colorMethodControl.style.display = "block";
+        if (defaults.toneMode === "scurve") {
+          contrastControl.style.display = "none";
+          curveCanvasWrapper.style.display = "flex";
+        } else {
+          contrastControl.style.display = "block";
+          curveCanvasWrapper.style.display = "none";
+        }
+      }
+
+      updatePreview();
+      scheduleSaveSettings();
+    } else {
+      console.error("Failed to fetch defaults from firmware");
+    }
+  } catch (error) {
+    console.error("Error resetting to defaults:", error);
+  }
 });
 
 // Upload processed image
@@ -1445,48 +1464,11 @@ async function loadPersistedSettings() {
 
       console.log("Loaded persisted settings from device");
     } else {
-      console.log("No persisted settings found, using defaults");
-      initializeFormDefaults();
+      console.error("Failed to load settings from firmware");
     }
   } catch (error) {
     console.error("Error loading settings:", error);
-    initializeFormDefaults();
   }
-}
-
-// Initialize form controls with default values
-function initializeFormDefaults() {
-  document.getElementById("exposure").value = DEFAULT_PARAMS.exposure;
-  document.getElementById("exposureValue").textContent =
-    DEFAULT_PARAMS.exposure;
-  document.getElementById("saturation").value = DEFAULT_PARAMS.saturation;
-  document.getElementById("saturationValue").textContent =
-    DEFAULT_PARAMS.saturation;
-  document.getElementById("contrast").value = DEFAULT_PARAMS.contrast;
-  document.getElementById("contrastValue").textContent =
-    DEFAULT_PARAMS.contrast;
-  document.getElementById("scurveStrength").value = DEFAULT_PARAMS.strength;
-  document.getElementById("strengthValue").textContent =
-    DEFAULT_PARAMS.strength;
-  document.getElementById("scurveShadow").value = DEFAULT_PARAMS.shadowBoost;
-  document.getElementById("shadowValue").textContent =
-    DEFAULT_PARAMS.shadowBoost;
-  document.getElementById("scurveHighlight").value =
-    DEFAULT_PARAMS.highlightCompress;
-  document.getElementById("highlightValue").textContent =
-    DEFAULT_PARAMS.highlightCompress;
-  document.getElementById("scurveMidpoint").value = DEFAULT_PARAMS.midpoint;
-  document.getElementById("midpointValue").textContent =
-    DEFAULT_PARAMS.midpoint;
-  document.querySelector(
-    `input[name="colorMethod"][value="${DEFAULT_PARAMS.colorMethod}"]`,
-  ).checked = true;
-  document.querySelector(
-    `input[name="toneMode"][value="${DEFAULT_PARAMS.toneMode}"]`,
-  ).checked = true;
-  document.querySelector(
-    `input[name="processingMode"][value="${DEFAULT_PARAMS.processingMode}"]`,
-  ).checked = true;
 }
 
 setupDragAndDrop();

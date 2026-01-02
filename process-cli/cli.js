@@ -15,7 +15,7 @@ const DISPLAY_WIDTH = 800;
 const DISPLAY_HEIGHT = 480;
 
 // Centralized default configuration for image processing
-// Keep in sync with webapp/app.js DEFAULT_PARAMS
+// Keep in sync with webapp/app.js DEFAULT_PARAMS and firmware processing_settings.c
 const DEFAULT_PARAMS = {
   exposure: 1.0,
   saturation: 1.3,
@@ -26,7 +26,6 @@ const DEFAULT_PARAMS = {
   highlightCompress: 1.5,
   midpoint: 0.5,
   colorMethod: "rgb",
-  renderMeasured: true,
   processingMode: "enhanced",
 };
 
